@@ -1,0 +1,81 @@
+// ─── PRODUCTION SCHEMA (PostgreSQL / Neon) ───
+// Copy this file to schema.prisma when deploying to Vercel with Neon DB
+// Then run: npx prisma generate && npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  name      String   @default("Admin")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Group {
+  id             String  @id @default(cuid())
+  name           String
+  logo           String?
+  monthlyTarget  Float   @default(0)
+  week1Target    Float   @default(0)
+  week2Target    Float   @default(0)
+  week3Target    Float   @default(0)
+  week4Target    Float   @default(0)
+  crews          Crew[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Crew {
+  id         String  @id @default(cuid())
+  name       String
+  photo      String?
+  employeeId String  @unique
+  groupId    String
+  group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sales      Sale[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Sale {
+  id               String   @id @default(cuid())
+  crewId           String?
+  crew             Crew?    @relation(fields: [crewId], references: [id], onDelete: SetNull)
+  tanggal          String
+  idPenjualan      String?
+  statusRetention  String?
+  retentionCode    String?
+  kodeExtend       String
+  brand            String?
+  dept             String?
+  modul            String?
+  ukuran           String?
+  qty              Int      @default(0)
+  hjp              Float    @default(0)
+  netto            Float    @default(0)
+  diskon           Float    @default(0)
+  diskonRp         Float    @default(0)
+  potongan         Float    @default(0)
+  potonganV        Float    @default(0)
+  settle           Float    @default(0)
+  pembayaran       String?
+  program          String?
+  channelStock     String?
+  claimedAt        DateTime?
+  createdAt        DateTime @default(now())
+  
+  @@index([tanggal])
+  @@index([kodeExtend])
+  @@index([crewId])
+  @@index([program])
+  @@index([tanggal, kodeExtend])
+}
