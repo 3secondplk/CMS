@@ -55,6 +55,14 @@ model Crew {
   updatedAt  DateTime @updatedAt
 }
 
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String
+  detail    String?
+  adminName String?
+  createdAt DateTime @default(now())
+}
+
 model Sale {
   id               String   @id @default(cuid())
   crewId           String?

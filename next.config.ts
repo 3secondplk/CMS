@@ -4,8 +4,10 @@ import withPWAInit from "@ducanh2912/next-pwa";
 const withPWA = withPWAInit({
   dest: "public",
   register: true,
-  skipWaiting: true,
   disable: process.env.NODE_ENV === "development",
+  workboxOptions: {
+    skipWaiting: true,
+  },
 });
 
 const nextConfig: NextConfig = withPWA({
@@ -16,6 +18,9 @@ const nextConfig: NextConfig = withPWA({
   },
   reactStrictMode: false,
   turbopack: {},
+  allowedDevOrigins: [
+    "https://preview-chat-81648ac9-0c9e-4c02-911d-c7b0dd0b182f.space-z.ai",
+  ],
   // Vercel handles headers via next.config or vercel.json
   headers: async () => [
     {
