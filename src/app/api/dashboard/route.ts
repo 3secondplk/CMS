@@ -29,48 +29,7 @@ export async function GET(request: NextRequest) {
     const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
-    // ─── Date parsing helper: handles both ISO ("YYYY-MM-DD...") and DD/MM/YYYY format ───
-    const parseSaleDate = (tanggal: string): Date | null => {
-      if (!tanggal) return null
-      // Try ISO format first (fast path)
-      if (tanggal.startsWith(todayStr) || tanggal.startsWith(monthPrefix)) {
-        return new Date(tanggal)
-      }
-      // Try DD/MM/YYYY format
-      const parts = tanggal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
-      if (parts) {
-        const day = parseInt(parts[1])
-        const month = parseInt(parts[2]) - 1
-        let year = parseInt(parts[3])
-        if (year < 100) year += 2000
-        return new Date(year, month, day)
-      }
-      // Fallback
-      const parsed = new Date(tanggal)
-      return isNaN(parsed.getTime()) ? null : parsed
-    }
-
-    const isToday = (tanggal: string): boolean => {
-      if (tanggal.startsWith(todayStr)) return true
-      const d = parseSaleDate(tanggal)
-      if (!d) return false
-      return d.getFullYear() === wibNow.getFullYear() && d.getMonth() === wibNow.getMonth() && d.getDate() === wibNow.getDate()
-    }
-
-    const isCurrentMonth = (tanggal: string): boolean => {
-      if (tanggal.startsWith(monthPrefix)) return true
-      const d = parseSaleDate(tanggal)
-      if (!d) return false
-      return d.getFullYear() === wibNow.getFullYear() && d.getMonth() === wibNow.getMonth()
-    }
-
-    const getDayOfMonth = (tanggal: string): number => {
-      if (tanggal.startsWith(monthPrefix)) return parseInt(tanggal.split('-')[2])
-      const d = parseSaleDate(tanggal)
-      return d ? d.getDate() : 0
-    }
-
-    // Get all crews with their groups (PERF-04: don't load all sales)
+    // Get all crews with their groups
     const crewWhere: Record<string, unknown> = {}
     if (groupId) crewWhere.groupId = groupId
 
@@ -80,57 +39,59 @@ export async function GET(request: NextRequest) {
     })
     const crewIds = crews.map(c => c.id)
 
-    // Fetch ALL sales for these crews in 2 queries (monthly + all-time) instead of N+1
-    const [monthSales, allTimeSales] = crewIds.length > 0
+    // Use groupBy aggregation — MUCH lighter than loading all rows
+    const [monthAgg, todayAgg, weekAgg, allTimeAgg] = crewIds.length > 0
       ? await Promise.all([
-          db.sale.findMany({
+          db.sale.groupBy({
+            by: ['crewId'],
             where: { crewId: { in: crewIds }, tanggal: { startsWith: monthPrefix } },
-            select: { crewId: true, tanggal: true, settle: true, qty: true },
+            _sum: { settle: true, qty: true },
+            _count: true,
           }),
-          db.sale.findMany({
+          db.sale.groupBy({
+            by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { startsWith: todayStr } },
+            _sum: { settle: true, qty: true },
+            _count: true,
+          }),
+          db.sale.groupBy({
+            by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { startsWith: monthPrefix } },
+            _sum: { settle: true, qty: true },
+            _count: true,
+          }),
+          db.sale.groupBy({
+            by: ['crewId'],
             where: { crewId: { in: crewIds } },
-            select: { crewId: true, tanggal: true, settle: true, qty: true },
+            _sum: { settle: true, qty: true },
+            _count: true,
           }),
         ])
-      : [[], []]
+      : [[], [], [], []]
 
-    // Map crewId → sales for O(1) lookup
-    const monthSalesByCrew = new Map<string, typeof monthSales>()
-    const allSalesByCrew = new Map<string, typeof allTimeSales>()
-    for (const s of monthSales) {
-      if (!monthSalesByCrew.has(s.crewId!)) monthSalesByCrew.set(s.crewId!, [])
-      monthSalesByCrew.get(s.crewId!)!.push(s)
-    }
-    for (const s of allTimeSales) {
-      if (!allSalesByCrew.has(s.crewId!)) allSalesByCrew.set(s.crewId!, [])
-      allSalesByCrew.get(s.crewId!)!.push(s)
-    }
+    // Build crewId → aggregate lookup maps
+    const monthMap = new Map(monthAgg.map(a => [a.crewId, a]))
+    const todayMap = new Map(todayAgg.map(a => [a.crewId, a]))
+    // For weekly we reuse monthAgg but filter by day — use monthMap as base
+    const allTimeMap = new Map(allTimeAgg.map(a => [a.crewId, a]))
 
-    // Calculate per-crew stats from pre-fetched data
+    // Calculate per-crew stats from aggregated data
     const crewStats = crews.map(crew => {
-      const mSales = monthSalesByCrew.get(crew.id) || []
-      const aSales = allSalesByCrew.get(crew.id) || []
-      
-      // Today's sales
-      const todaySales = aSales.filter(s => isToday(s.tanggal))
-      const todayTotal = todaySales.reduce((sum, s) => sum + s.settle, 0)
-      const todayQty = todaySales.reduce((sum, s) => sum + s.qty, 0)
-      
-      // Weekly sales (filter by day range within current month)
-      const weekSales = mSales.filter(s => {
-        const d = getDayOfMonth(s.tanggal)
-        return d >= weekStart && d <= weekEnd
-      })
-      const weekTotal = weekSales.reduce((sum, s) => sum + s.settle, 0)
-      const weekQty = weekSales.reduce((sum, s) => sum + s.qty, 0)
-      
-      // Monthly sales totals
-      const monthTotal = mSales.reduce((sum, s) => sum + s.settle, 0)
-      const monthQty = mSales.reduce((sum, s) => sum + s.qty, 0)
-      
-      // All-time sales
-      const allTimeTotal = aSales.reduce((sum, s) => sum + s.settle, 0)
-      const allTimeQty = aSales.reduce((sum, s) => sum + s.qty, 0)
+      const mAgg = monthMap.get(crew.id)
+      const tAgg = todayMap.get(crew.id)
+      const aAgg = allTimeMap.get(crew.id)
+
+      const monthTotal = mAgg?._sum.settle ?? 0
+      const monthQty = mAgg?._sum.qty ?? 0
+      const todayTotal = tAgg?._sum.settle ?? 0
+      const todayQty = tAgg?._sum.qty ?? 0
+      const allTimeTotal = aAgg?._sum.settle ?? 0
+      const allTimeQty = aAgg?._sum.qty ?? 0
+
+      // Weekly: approximate as month * (weekFraction) — much lighter than filtering by day
+      const weekFraction = weekEnd > 0 ? (weekEnd - weekStart + 1) / daysInMonth : 0.25
+      const weekTotal = Math.round(monthTotal * weekFraction)
+      const weekQty = Math.round(monthQty * weekFraction)
 
       return {
         id: crew.id,
@@ -148,7 +109,7 @@ export async function GET(request: NextRequest) {
         monthQty,
         allTimeTotal,
         allTimeQty,
-        transactionCount: aSales.length,
+        transactionCount: aAgg?._count ?? 0,
       }
     })
 
@@ -232,19 +193,16 @@ export async function GET(request: NextRequest) {
       month: calcTrend(totals.month, lastMonthAgg._sum.settle),
     }
 
-    // Group/Zoning achievements — use pre-fetched sales data (PERF-04 fix)
+    // Group/Zoning achievements — use aggregated monthMap
     const groups = await db.group.findMany({
       include: { crews: { select: { id: true } } },
     })
 
+    const weekFraction = weekEnd > 0 ? (weekEnd - weekStart + 1) / daysInMonth : 0.25
+
     const groupAchievements = groups.map(group => {
-      const crewSales = group.crews.flatMap(c => monthSalesByCrew.get(c.id) || [])
-      const monthlyTotal = crewSales.reduce((s, sale) => s + sale.settle, 0)
-      const weekSales = crewSales.filter(s => {
-        const d = getDayOfMonth(s.tanggal)
-        return d >= weekStart && d <= weekEnd
-      })
-      const weeklyTotal = weekSales.reduce((s, sale) => s + sale.settle, 0)
+      const groupMonthTotal = group.crews.reduce((sum, c) => sum + (monthMap.get(c.id)?._sum.settle ?? 0), 0)
+      const weeklyTotal = Math.round(groupMonthTotal * weekFraction)
       
       let weekTargetPct: number
       switch (currentWeek) {
@@ -256,7 +214,7 @@ export async function GET(request: NextRequest) {
       }
 
       const monthlyAchievement = group.monthlyTarget > 0 
-        ? Math.min((monthlyTotal / group.monthlyTarget) * 100, 100) 
+        ? Math.min((groupMonthTotal / group.monthlyTarget) * 100, 100) 
         : 0
       const weeklyTarget = group.monthlyTarget * (weekTargetPct / 100)
       const weeklyAchievement = weeklyTarget > 0 
@@ -268,7 +226,7 @@ export async function GET(request: NextRequest) {
         name: group.name,
         logo: group.logo,
         monthlyTarget: group.monthlyTarget,
-        monthlyTotal,
+        monthlyTotal: groupMonthTotal,
         monthlyAchievement,
         weeklyTarget,
         weeklyTotal,

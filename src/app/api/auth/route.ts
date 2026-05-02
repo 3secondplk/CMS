@@ -47,8 +47,7 @@ export async function POST(request: NextRequest) {
 
     // SEC-02: Block login if NEXT_AUTH_SECRET not configured in production
     if (!JWT_SECRET) {
-      console.error('NEXT_AUTH_SECRET environment variable is not set')
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+      return NextResponse.json({ error: 'Server configuration error: NEXT_AUTH_SECRET not set' }, { status: 500 })
     }
 
     const hashedPassword = crypto.createHash('sha256').update(password).digest('hex')
@@ -73,7 +72,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!admin || admin.password !== hashedPassword) {
-      return NextResponse.json({ error: 'Username atau password salah' }, { status: 401 })
+      return NextResponse.json({ error: 'Username atau password salah', debug: { hasAdmin: !!admin, adminCount } }, { status: 401 })
     }
 
     const token = createJWT({ adminId: admin.id, username: admin.username, name: admin.name })

@@ -307,33 +307,6 @@ export async function GET(request: NextRequest) {
     const totalQty = summary._sum.qty ?? 0
     const totalSettle = summary._sum.settle ?? 0
 
-    // Basket size & price point still need individual row data for struk count
-    // Use a separate lightweight query only when needed
-    const strukData = await db.sale.findMany({
-      where,
-      select: { tanggal: true },
-    })
-
-    // Basket size: total qty / total struk (struk = unique date+minute+hour)
-    const strukKeys = new Set<string>()
-    for (const s of strukData) {
-      // tanggal format: "DD/MM/YYYY HH:MM" or similar — extract date + hour:minute
-      const match = s.tanggal.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}):(\d{2})/)
-      if (match) {
-        strukKeys.add(`${match[1]}_${match[2]}:${match[3]}`)
-      } else {
-        // Fallback: use full tanggal as-is
-        strukKeys.add(s.tanggal)
-      }
-    }
-    const totalStruk = strukKeys.size
-    const basketSize = totalStruk > 0 ? (totalQty / totalStruk) : 0
-
-    // Price point: use average hjp from aggregation (approximation — exact avg requires _avg which needs non-null filter)
-    const avgHjp = summary._sum.hjp && summary._count > 0
-      ? summary._sum.hjp / summary._count
-      : 0
-
     return NextResponse.json({
       sales,
       total,
@@ -342,9 +315,6 @@ export async function GET(request: NextRequest) {
       summary: {
         totalQty,
         totalSettle,
-        totalStruk,
-        basketSize: Math.round(basketSize * 100) / 100,
-        pricePoint: Math.round(avgHjp),
       },
     })
   } catch (error) {

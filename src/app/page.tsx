@@ -362,10 +362,10 @@ export default function Home() {
     try {
       const r = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
       const d = await r.json()
-      if (d.error) { toast.error(d.error); return }
+      if (d.error) { toast.error(`${d.error} (HTTP ${r.status})${d.debug ? ' | adminCount: ' + d.debug.adminCount : ''}`); return }
       setIsAdmin(true)
       toast.success(`Selamat datang, ${d.admin.name}!`)
-    } catch { toast.error('Login gagal') }
+    } catch (e: any) { toast.error('Login gagal: ' + (e.message || 'Network error')) }
   }
 
   const handleLogout = async () => {
