@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
     else currentWeek = 4
 
     const weekStart = (currentWeek - 1) * 7 + 1
-    const weekEnd = Math.min(currentWeek * 7, 31)
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+    const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
     // ─── Date parsing helper: handles both ISO ("YYYY-MM-DD...") and DD/MM/YYYY format ───
@@ -69,32 +70,54 @@ export async function GET(request: NextRequest) {
       return d ? d.getDate() : 0
     }
 
-    // Get all crews with their groups and sales
+    // Get all crews with their groups (PERF-04: don't load all sales)
     const crewWhere: Record<string, unknown> = {}
     if (groupId) crewWhere.groupId = groupId
 
     const crews = await db.crew.findMany({
       where: crewWhere,
-      include: {
-        group: true,
-        sales: true,
-      },
+      include: { group: true },
     })
+    const crewIds = crews.map(c => c.id)
 
-    // Calculate per-crew stats
+    // Fetch ALL sales for these crews in 2 queries (monthly + all-time) instead of N+1
+    const [monthSales, allTimeSales] = crewIds.length > 0
+      ? await Promise.all([
+          db.sale.findMany({
+            where: { crewId: { in: crewIds }, tanggal: { startsWith: monthPrefix } },
+            select: { crewId: true, tanggal: true, settle: true, qty: true },
+          }),
+          db.sale.findMany({
+            where: { crewId: { in: crewIds } },
+            select: { crewId: true, tanggal: true, settle: true, qty: true },
+          }),
+        ])
+      : [[], []]
+
+    // Map crewId → sales for O(1) lookup
+    const monthSalesByCrew = new Map<string, typeof monthSales>()
+    const allSalesByCrew = new Map<string, typeof allTimeSales>()
+    for (const s of monthSales) {
+      if (!monthSalesByCrew.has(s.crewId!)) monthSalesByCrew.set(s.crewId!, [])
+      monthSalesByCrew.get(s.crewId!)!.push(s)
+    }
+    for (const s of allTimeSales) {
+      if (!allSalesByCrew.has(s.crewId!)) allSalesByCrew.set(s.crewId!, [])
+      allSalesByCrew.get(s.crewId!)!.push(s)
+    }
+
+    // Calculate per-crew stats from pre-fetched data
     const crewStats = crews.map(crew => {
-      const allSales = crew.sales
+      const mSales = monthSalesByCrew.get(crew.id) || []
+      const aSales = allSalesByCrew.get(crew.id) || []
       
       // Today's sales
-      const todaySales = allSales.filter(s => isToday(s.tanggal))
+      const todaySales = aSales.filter(s => isToday(s.tanggal))
       const todayTotal = todaySales.reduce((sum, s) => sum + s.settle, 0)
       const todayQty = todaySales.reduce((sum, s) => sum + s.qty, 0)
       
-      // Monthly sales (for weekly filter base)
-      const monthSales = allSales.filter(s => isCurrentMonth(s.tanggal))
-      
-      // Weekly sales (filter by current month to avoid cross-month contamination)
-      const weekSales = monthSales.filter(s => {
+      // Weekly sales (filter by day range within current month)
+      const weekSales = mSales.filter(s => {
         const d = getDayOfMonth(s.tanggal)
         return d >= weekStart && d <= weekEnd
       })
@@ -102,12 +125,12 @@ export async function GET(request: NextRequest) {
       const weekQty = weekSales.reduce((sum, s) => sum + s.qty, 0)
       
       // Monthly sales totals
-      const monthTotal = monthSales.reduce((sum, s) => sum + s.settle, 0)
-      const monthQty = monthSales.reduce((sum, s) => sum + s.qty, 0)
+      const monthTotal = mSales.reduce((sum, s) => sum + s.settle, 0)
+      const monthQty = mSales.reduce((sum, s) => sum + s.qty, 0)
       
       // All-time sales
-      const allTimeTotal = allSales.reduce((sum, s) => sum + s.settle, 0)
-      const allTimeQty = allSales.reduce((sum, s) => sum + s.qty, 0)
+      const allTimeTotal = aSales.reduce((sum, s) => sum + s.settle, 0)
+      const allTimeQty = aSales.reduce((sum, s) => sum + s.qty, 0)
 
       return {
         id: crew.id,
@@ -125,7 +148,7 @@ export async function GET(request: NextRequest) {
         monthQty,
         allTimeTotal,
         allTimeQty,
-        transactionCount: allSales.length,
+        transactionCount: aSales.length,
       }
     })
 
@@ -209,24 +232,18 @@ export async function GET(request: NextRequest) {
       month: calcTrend(totals.month, lastMonthAgg._sum.settle),
     }
 
-    // Group/Zoning achievements
+    // Group/Zoning achievements — use pre-fetched sales data (PERF-04 fix)
     const groups = await db.group.findMany({
-      include: {
-        crews: {
-          include: { sales: true },
-        },
-      },
+      include: { crews: { select: { id: true } } },
     })
 
     const groupAchievements = groups.map(group => {
-      const allSales = group.crews.flatMap(c => c.sales)
-      const monthSales = allSales.filter(s => isCurrentMonth(s.tanggal))
-      const weekSales = monthSales.filter(s => {
+      const crewSales = group.crews.flatMap(c => monthSalesByCrew.get(c.id) || [])
+      const monthlyTotal = crewSales.reduce((s, sale) => s + sale.settle, 0)
+      const weekSales = crewSales.filter(s => {
         const d = getDayOfMonth(s.tanggal)
         return d >= weekStart && d <= weekEnd
       })
-      
-      const monthlyTotal = monthSales.reduce((s, sale) => s + sale.settle, 0)
       const weeklyTotal = weekSales.reduce((s, sale) => s + sale.settle, 0)
       
       let weekTargetPct: number

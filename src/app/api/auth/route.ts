@@ -3,7 +3,8 @@ import { db } from '@/lib/db'
 import * as crypto from 'crypto'
 
 // ─── Stateless JWT for serverless (Vercel) compatibility ───
-const JWT_SECRET = process.env.JWT_SECRET || 'cms-crew-jwt-secret-ahtjong-labs-2025'
+// SEC-02: No fallback — NEXT_AUTH_SECRET must be set in production
+const JWT_SECRET = process.env.NEXT_AUTH_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'cms-crew-dev-secret-local-only')
 const JWT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 interface JWTPayload {
@@ -42,6 +43,12 @@ export async function POST(request: NextRequest) {
 
     if (!username || !password) {
       return NextResponse.json({ error: 'Username dan password harus diisi' }, { status: 400 })
+    }
+
+    // SEC-02: Block login if NEXT_AUTH_SECRET not configured in production
+    if (!JWT_SECRET) {
+      console.error('NEXT_AUTH_SECRET environment variable is not set')
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
     const hashedPassword = crypto.createHash('sha256').update(password).digest('hex')

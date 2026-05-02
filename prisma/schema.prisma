@@ -5,10 +5,12 @@
 // LOCAL DEV:   provider = "sqlite",    url = "file:../db/custom.db"
 // VERCEL/NEON: provider = "postgresql", url = env("DATABASE_URL")
 //
-// FOR VERCEL DEPLOYMENT:
+// ⚠️  DEPLOY TO VERCEL + NEON:
 //   1. Change provider below to "postgresql"
 //   2. Set DATABASE_URL env var to your Neon connection string
-//   3. Run: npx prisma generate && npx prisma db push
+//   3. Set NEXT_AUTH_SECRET env var to a random string
+//   4. Commit & push — Vercel runs: npx prisma generate && next build
+//   5. After first deploy, run: npx prisma db push
 // ─────────────────────────────────────────────────────────
 
 generator client {
@@ -16,7 +18,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 

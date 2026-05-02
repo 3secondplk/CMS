@@ -3,68 +3,70 @@ import { db } from '@/lib/db'
 
 export async function GET() {
   try {
-    const groups = await db.group.findMany({
-      include: {
-        crews: {
-          include: {
-            sales: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    })
-
-    // Calculate achievements for each group
+    // ── WIB date calculation (before any queries) ──
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
-    
+
     const currentMonth = wibNow.getMonth()
     const currentYear = wibNow.getFullYear()
     const dayOfMonth = wibNow.getDate()
-    
-    // Determine current week
+
     let currentWeek = 1
     if (dayOfMonth <= 7) currentWeek = 1
     else if (dayOfMonth <= 14) currentWeek = 2
     else if (dayOfMonth <= 21) currentWeek = 3
     else currentWeek = 4
 
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
-    const groupsWithStats = groups.map(group => {
-      const allSales = group.crews.flatMap(c => c.sales)
-      
-      // Monthly total — filter by current month using monthPrefix
-      const monthSales = allSales.filter(s => {
-        // Handle ISO date strings (from xlsx) and DD/MM/YYYY format
-        if (s.tanggal.startsWith(monthPrefix)) return true
-        // Fallback: try parsing as Date for DD/MM/YYYY format
-        const parsed = new Date(s.tanggal)
-        if (isNaN(parsed.getTime())) return false
-        return parsed.getFullYear() === currentYear && parsed.getMonth() === currentMonth
-      })
-      const monthlyTotal = monthSales.reduce((sum, s) => sum + s.settle, 0)
+    // ── Fetch groups with crew IDs only (PERF-03: don't load all sales) ──
+    const groupsRaw = await db.group.findMany({
+      include: {
+        crews: { select: { id: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    // ── Fetch monthly sales for all crews in a single query ──
+    const allCrewIds = groupsRaw.flatMap(g => g.crews.map(c => c.id))
+    const monthSalesData = allCrewIds.length > 0
+      ? await db.sale.findMany({
+          where: {
+            crewId: { in: allCrewIds },
+            tanggal: { startsWith: monthPrefix },
+          },
+          select: { crewId: true, tanggal: true, settle: true },
+        })
+      : []
+
+    // Map crewId → sales for O(1) lookup
+    const salesByCrew = new Map<string, { tanggal: string; settle: number }[]>()
+    for (const s of monthSalesData) {
+      if (!salesByCrew.has(s.crewId!)) salesByCrew.set(s.crewId!, [])
+      salesByCrew.get(s.crewId!)!.push({ tanggal: s.tanggal, settle: s.settle })
+    }
+
+    // Week range (CORR-02: days 29-31 now included in week 4)
+    const weekStart = (currentWeek - 1) * 7 + 1
+    const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
+
+    // ── Calculate achievements per group ──
+    const groupsWithStats = groupsRaw.map(group => {
+      const crewMonthSales = group.crews.flatMap(c => salesByCrew.get(c.id) || [])
+      const monthlyTotal = crewMonthSales.reduce((sum, s) => sum + s.settle, 0)
       const monthlyTarget = group.monthlyTarget
       const monthlyAchievement = monthlyTarget > 0 ? (monthlyTotal / monthlyTarget) * 100 : 0
-      
-      // Weekly total — also filter by current month to avoid cross-month contamination
-      const weekStart = (currentWeek - 1) * 7 + 1
-      const weekEnd = Math.min(currentWeek * 7, 31)
-      const weekSales = monthSales.filter(s => {
-        // Parse day from tanggal (ISO format: "YYYY-MM-DD..." or DD/MM/YYYY)
-        if (s.tanggal.startsWith(monthPrefix)) {
-          const day = parseInt(s.tanggal.split('-')[2])
-          return day >= weekStart && day <= weekEnd
-        }
-        const parsed = new Date(s.tanggal)
-        if (isNaN(parsed.getTime())) return false
-        const day = parsed.getDate()
+
+      const weekSales = crewMonthSales.filter(s => {
+        const day = s.tanggal.startsWith(monthPrefix)
+          ? parseInt(s.tanggal.split('-')[2])
+          : (() => { const p = new Date(s.tanggal); return isNaN(p.getTime()) ? 0 : p.getDate() })()
         return day >= weekStart && day <= weekEnd
       })
       const weeklyTotal = weekSales.reduce((sum, s) => sum + s.settle, 0)
-      
-      // Get current week target
+
       let weekTarget: number
       switch (currentWeek) {
         case 1: weekTarget = group.week1Target; break
@@ -87,7 +89,7 @@ export async function GET() {
       }
     })
 
-    return NextResponse.json(groups)
+    return NextResponse.json(groupsWithStats)
   } catch (error) {
     console.error('Get groups error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
@@ -155,14 +157,12 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
-    
+
     if (!id) {
       return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
     }
 
-    await db.group.delete({
-      where: { id },
-    })
+    await db.group.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
   } catch (error) {

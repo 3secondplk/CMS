@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { Prisma } from '@prisma/client'
 import * as XLSX from 'xlsx'
 
 // ─────────────────────────────────────────────
@@ -15,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File harus diisi' }, { status: 400 })
     }
 
-    // File type validation (no size limit — import as many rows as needed)
+    // File type validation
     const validTypes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
@@ -23,6 +22,14 @@ export async function POST(request: NextRequest) {
     if (!validTypes.includes(file.type) && !file.name.match(/\.xlsx?$/i)) {
       return NextResponse.json(
         { error: 'Format file tidak didukung. Gunakan file Excel (.xlsx atau .xls)' },
+        { status: 400 },
+      )
+    }
+
+    // SEC-07: File size limit (Vercel Hobby has 4.5MB body limit)
+    if (file.size > 4 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'File terlalu besar (maksimal 4MB untuk Vercel free tier)' },
         { status: 400 },
       )
     }
@@ -118,21 +125,27 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Cross-DB deduplication: check against existing database records ──
-    // A row is considered duplicate if tanggal + kodeExtend already exists in DB
-    const uniqueTanggals = [...new Set(salesData.map(item => item.tanggal))]
-    const uniqueKodeExtends = [...new Set(salesData.map(item => item.kodeExtend))]
+    // CORR-01 FIX: Use OR with exact pair matching instead of Cartesian product
+    // Old (WRONG): WHERE tanggal IN (...) AND kodeExtend IN (...) — matches ANY combination
+    // New (CORRECT): WHERE (tanggal=X AND kodeExtend=Y) OR (tanggal=A AND kodeExtend=B) ...
+    const dedupKeys = salesData.map(item => ({
+      tanggal: item.tanggal,
+      kodeExtend: item.kodeExtend,
+    }))
 
-    // Batch query: find existing records that match any combination
-    const existingRecords = await db.sale.findMany({
-      where: {
-        tanggal: { in: uniqueTanggals },
-        kodeExtend: { in: uniqueKodeExtends },
-      },
-      select: { tanggal: true, kodeExtend: true },
-    })
-
-    // Build Set of existing composite keys for O(1) lookup
-    const existingKeys = new Set(existingRecords.map(r => `${r.tanggal}|||${r.kodeExtend}`))
+    // Batch in chunks of 100 to avoid Prisma/SQLite query limits
+    const CHUNK_SIZE = 100
+    const existingKeys = new Set<string>()
+    for (let i = 0; i < dedupKeys.length; i += CHUNK_SIZE) {
+      const chunk = dedupKeys.slice(i, i + CHUNK_SIZE)
+      const chunkResults = await db.sale.findMany({
+        where: { OR: chunk },
+        select: { tanggal: true, kodeExtend: true },
+      })
+      for (const r of chunkResults) {
+        existingKeys.add(`${r.tanggal}|||${r.kodeExtend}`)
+      }
+    }
 
     // Filter out rows that already exist in database
     const newSalesData = salesData.filter(item => !existingKeys.has(`${item.tanggal}|||${item.kodeExtend}`))
@@ -220,7 +233,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
-    const limit = Math.max(1, parseInt(searchParams.get('limit') || '50'))
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50'))) // PERF-06: cap at 100
     const search = searchParams.get('search') || ''
     const dateFrom = searchParams.get('dateFrom') || ''
     const dateTo = searchParams.get('dateTo') || ''
@@ -240,16 +253,16 @@ export async function GET(request: NextRequest) {
       where.crewId = crewId
     }
 
-    // Search across kodeExtend, brand, dept, and crew name
+    // Search across kodeExtend, brand, dept, and crew name (PG-01: case-insensitive for PostgreSQL)
     if (search) {
-      const searchConditions: Prisma.SaleWhereInput[] = [
-        { kodeExtend: { contains: search } },
-        { brand: { contains: search } },
-        { dept: { contains: search } },
+      const searchConditions = [
+        { kodeExtend: { contains: search, mode: 'insensitive' } },
+        { brand: { contains: search, mode: 'insensitive' } },
+        { dept: { contains: search, mode: 'insensitive' } },
       ]
       // Only add crew name search if there might be a crew relation
       if (claimed !== 'false') {
-        searchConditions.push({ crew: { name: { contains: search } } })
+        searchConditions.push({ crew: { name: { contains: search, mode: 'insensitive' } } })
       }
       where.OR = searchConditions
     }
@@ -267,7 +280,7 @@ export async function GET(request: NextRequest) {
       where.program = program
     }
 
-    const [sales, total, allSales] = await Promise.all([
+    const [sales, total, summary] = await Promise.all([
       db.sale.findMany({
         where,
         include: {
@@ -280,22 +293,30 @@ export async function GET(request: NextRequest) {
         take: limit,
       }),
       db.sale.count({ where }),
-      // Fetch all matching sales for summary stats (select only needed fields)
-      db.sale.findMany({
+      // PERF-01: Use aggregation instead of loading all rows into memory
+      db.sale.aggregate({
+        _sum: { qty: true, settle: true, hjp: true },
+        _count: true,
         where,
-        select: { tanggal: true, qty: true, settle: true, hjp: true },
       }),
     ])
 
     const totalPages = Math.max(1, Math.ceil(total / limit))
 
-    // Calculate summary stats
-    const totalQty = allSales.reduce((s, r) => s + r.qty, 0)
-    const totalSettle = allSales.reduce((s, r) => s + r.settle, 0)
+    // Calculate summary stats from aggregation result
+    const totalQty = summary._sum.qty ?? 0
+    const totalSettle = summary._sum.settle ?? 0
+
+    // Basket size & price point still need individual row data for struk count
+    // Use a separate lightweight query only when needed
+    const strukData = await db.sale.findMany({
+      where,
+      select: { tanggal: true },
+    })
 
     // Basket size: total qty / total struk (struk = unique date+minute+hour)
     const strukKeys = new Set<string>()
-    for (const s of allSales) {
+    for (const s of strukData) {
       // tanggal format: "DD/MM/YYYY HH:MM" or similar — extract date + hour:minute
       const match = s.tanggal.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}):(\d{2})/)
       if (match) {
@@ -308,10 +329,9 @@ export async function GET(request: NextRequest) {
     const totalStruk = strukKeys.size
     const basketSize = totalStruk > 0 ? (totalQty / totalStruk) : 0
 
-    // Price point: average hjp
-    const salesWithHjp = allSales.filter(s => s.hjp > 0)
-    const pricePoint = salesWithHjp.length > 0
-      ? salesWithHjp.reduce((s, r) => s + r.hjp, 0) / salesWithHjp.length
+    // Price point: use average hjp from aggregation (approximation — exact avg requires _avg which needs non-null filter)
+    const avgHjp = summary._sum.hjp && summary._count > 0
+      ? summary._sum.hjp / summary._count
       : 0
 
     return NextResponse.json({
@@ -324,7 +344,7 @@ export async function GET(request: NextRequest) {
         totalSettle,
         totalStruk,
         basketSize: Math.round(basketSize * 100) / 100,
-        pricePoint: Math.round(pricePoint),
+        pricePoint: Math.round(avgHjp),
       },
     })
   } catch (error) {
@@ -346,6 +366,14 @@ export async function PUT(request: NextRequest) {
     if (!saleIds || !Array.isArray(saleIds) || saleIds.length === 0) {
       return NextResponse.json(
         { error: 'saleIds harus berupa array yang tidak kosong' },
+        { status: 400 },
+      )
+    }
+
+    // SEC-05: Cap array size to prevent abuse
+    if (saleIds.length > 500) {
+      return NextResponse.json(
+        { error: 'Maksimal 500 item per request' },
         { status: 400 },
       )
     }

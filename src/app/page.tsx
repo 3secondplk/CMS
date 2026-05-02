@@ -1878,7 +1878,7 @@ export default function Home() {
                       <Button onClick={handleLogin} className="w-full bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25">
                         <Shield className="w-4 h-4 mr-2" />Masuk
                       </Button>
-                      <p className="text-[10px] text-center text-muted-foreground">Default: admin / admin123</p>
+                      <p className="text-[10px] text-center text-muted-foreground">Hubungi admin untuk akses</p>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -2247,9 +2247,9 @@ export default function Home() {
               disabled={batchDeleting}
               onClick={async () => {
                 if (!deleteConfirm) return
-                if (deleteConfirm.type === 'crew' && deleteConfirm.id) await handleDeleteCrew(deleteConfirm.id)
-                else if (deleteConfirm.type === 'group' && deleteConfirm.id) await handleDeleteGroup(deleteConfirm.id)
-                else if (deleteConfirm.type === 'sale' && deleteConfirm.id) await handleDeleteSale(deleteConfirm.id)
+                if (deleteConfirm.type === 'crew') await handleDeleteCrew(deleteConfirm.id)
+                else if (deleteConfirm.type === 'group') await handleDeleteGroup(deleteConfirm.id)
+                else if (deleteConfirm.type === 'sale') await handleDeleteSale(deleteConfirm.id)
                 else if (deleteConfirm.type === 'batch-sale') await handleBatchDeleteSales(deleteConfirm.ids || [])
                 setDeleteConfirm(null)
               }}
