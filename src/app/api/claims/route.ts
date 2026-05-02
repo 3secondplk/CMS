@@ -306,6 +306,9 @@ export async function GET(request: NextRequest) {
     // Calculate summary stats from aggregation result
     const totalQty = summary._sum.qty ?? 0
     const totalSettle = summary._sum.settle ?? 0
+    const totalStruk = summary._count ?? 0
+    const basketSize = totalStruk > 0 ? totalQty / totalStruk : 0
+    const pricePoint = totalQty > 0 ? totalSettle / totalQty : 0
 
     return NextResponse.json({
       sales,
@@ -315,6 +318,9 @@ export async function GET(request: NextRequest) {
       summary: {
         totalQty,
         totalSettle,
+        totalStruk,
+        basketSize,
+        pricePoint,
       },
     })
   } catch (error) {

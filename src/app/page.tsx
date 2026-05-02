@@ -881,7 +881,7 @@ export default function Home() {
                               <div className="space-y-1.5 min-w-0 flex-1">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-                                  {card.trend && card.trend.changePercent !== null && card.trend.direction !== 'same' && (
+                                  {card.trend && card.trend.changePercent != null && card.trend.direction !== 'same' && (
                                     <motion.span initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                                       card.trend.direction === 'up' ? 'text-emerald-700 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-950/50' : 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950/50'
                                     }`}>
@@ -1375,10 +1375,10 @@ export default function Home() {
                   <motion.div {...fadeIn} transition={{ delay: 0.1 }}>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                       {[
-                        { label: 'Total Settle', value: fmtRp(claimSummary.totalSettle), icon: DollarSign, gradient: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-500/20', sub: `${fmtNum(claimTotal)} data` },
-                        { label: 'Total Qty', value: fmtNum(claimSummary.totalQty), icon: Package, gradient: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-500/20', sub: 'jumlah item' },
-                        { label: 'Basket Size', value: claimSummary.basketSize.toFixed(2), icon: ShoppingCart, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20', sub: `${fmtNum(claimSummary.totalStruk)} struk` },
-                        { label: 'Price Point', value: fmtRp(claimSummary.pricePoint), icon: Percent, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', sub: 'rata-rata HJP' },
+                        { label: 'Total Settle', value: fmtRp(claimSummary.totalSettle ?? 0), icon: DollarSign, gradient: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-500/20', sub: `${fmtNum(claimTotal)} data` },
+                        { label: 'Total Qty', value: fmtNum(claimSummary.totalQty ?? 0), icon: Package, gradient: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-500/20', sub: 'jumlah item' },
+                        { label: 'Basket Size', value: (claimSummary.basketSize ?? 0).toFixed(2), icon: ShoppingCart, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20', sub: `${fmtNum(claimSummary.totalStruk ?? 0)} struk` },
+                        { label: 'Price Point', value: fmtRp(claimSummary.pricePoint ?? 0), icon: Percent, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', sub: 'rata-rata HJP' },
                       ].map((s, i) => (
                         <motion.div key={i} whileHover={{ y: -2, transition: { type: 'spring', stiffness: 300 } }}>
                           <Card className="border-0 shadow-md card-hover-glow overflow-hidden">
