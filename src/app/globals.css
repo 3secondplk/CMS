@@ -210,6 +210,15 @@
   animation: subtle-pulse 2s ease-in-out infinite;
 }
 
+/* Pulse glow for ready-to-claim button */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(5, 150, 105, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(5, 150, 105, 0.5); }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
 /* Table hover improvements */
 tbody tr {
   transition: background-color 0.15s ease;

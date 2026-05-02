@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,9 +40,12 @@ export async function GET(request: NextRequest) {
     })
     const crewIds = crews.map(c => c.id)
 
+    // Calculate week date range string for accurate weekly queries
+    const weekStartStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekStart).padStart(2, '0')}`
+    const weekEndStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekEnd).padStart(2, '0')}`
+
     // Use groupBy aggregation — MUCH lighter than loading all rows
-    // PERF: month and week share same month-prefix data — compute once
-    const [monthAgg, todayAgg, allTimeAgg] = crewIds.length > 0
+    const [monthAgg, todayAgg, weekAgg, allTimeAgg] = crewIds.length > 0
       ? await Promise.all([
           db.sale.groupBy({
             by: ['crewId'],
@@ -57,35 +61,83 @@ export async function GET(request: NextRequest) {
           }),
           db.sale.groupBy({
             by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { gte: weekStartStr, lte: weekEndStr } },
+            _sum: { settle: true, qty: true },
+            _count: true,
+          }),
+          db.sale.groupBy({
+            by: ['crewId'],
             where: { crewId: { in: crewIds } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
         ])
-      : [[], [], []]
+      : [[], [], [], []]
 
     // Build crewId → aggregate lookup maps
     const monthMap = new Map(monthAgg.map(a => [a.crewId, a]))
     const todayMap = new Map(todayAgg.map(a => [a.crewId, a]))
+    const weekMap = new Map(weekAgg.map(a => [a.crewId, a]))
     const allTimeMap = new Map(allTimeAgg.map(a => [a.crewId, a]))
+
+    // Struk counts per crew per period — using COUNT(DISTINCT idPenjualan)
+    // idPenjualan = transaction/receipt ID from POS system
+    // One struk can have multiple item rows sharing the same idPenjualan
+    const [todayStrukRaw, weekStrukRaw, monthStrukRaw, allTimeStrukRaw] = crewIds.length > 0
+      ? await Promise.all([
+          db.$queryRaw<Array<{ crewId: string; count: number }>>`
+            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
+            FROM Sale
+            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL AND tanggal LIKE ${todayStr + '%'}
+            GROUP BY crewId
+          `,
+          db.$queryRaw<Array<{ crewId: string; count: number }>>`
+            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
+            FROM Sale
+            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL AND tanggal >= ${weekStartStr} AND tanggal <= ${weekEndStr}
+            GROUP BY crewId
+          `,
+          db.$queryRaw<Array<{ crewId: string; count: number }>>`
+            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
+            FROM Sale
+            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL AND tanggal LIKE ${monthPrefix + '%'}
+            GROUP BY crewId
+          `,
+          db.$queryRaw<Array<{ crewId: string; count: number }>>`
+            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
+            FROM Sale
+            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL
+            GROUP BY crewId
+          `,
+        ])
+      : [[], [], [], []]
+
+    const todayStrukMap = new Map(todayStrukRaw.map(r => [r.crewId, Number(r.count)]))
+    const weekStrukMap = new Map(weekStrukRaw.map(r => [r.crewId, Number(r.count)]))
+    const monthStrukMap = new Map(monthStrukRaw.map(r => [r.crewId, Number(r.count)]))
+    const allTimeStrukMap = new Map(allTimeStrukRaw.map(r => [r.crewId, Number(r.count)]))
 
     // Calculate per-crew stats from aggregated data
     const crewStats = crews.map(crew => {
       const mAgg = monthMap.get(crew.id)
       const tAgg = todayMap.get(crew.id)
+      const wAgg = weekMap.get(crew.id)
       const aAgg = allTimeMap.get(crew.id)
 
       const monthTotal = mAgg?._sum.settle ?? 0
       const monthQty = mAgg?._sum.qty ?? 0
       const todayTotal = tAgg?._sum.settle ?? 0
       const todayQty = tAgg?._sum.qty ?? 0
+      const weekTotal = wAgg?._sum.settle ?? 0
+      const weekQty = wAgg?._sum.qty ?? 0
       const allTimeTotal = aAgg?._sum.settle ?? 0
       const allTimeQty = aAgg?._sum.qty ?? 0
 
-      // Weekly: approximate as month * (weekFraction) — much lighter than filtering by day
-      const weekFraction = weekEnd > 0 ? (weekEnd - weekStart + 1) / daysInMonth : 0.25
-      const weekTotal = Math.round(monthTotal * weekFraction)
-      const weekQty = Math.round(monthQty * weekFraction)
+      // Struk counts (unique transactions/receipts) per period
+      const todayStruk = todayStrukMap.get(crew.id) ?? 0
+      const weekStruk = weekStrukMap.get(crew.id) ?? 0
+      const monthStruk = monthStrukMap.get(crew.id) ?? 0
+      const allTimeStruk = allTimeStrukMap.get(crew.id) ?? 0
 
       return {
         id: crew.id,
@@ -97,12 +149,16 @@ export async function GET(request: NextRequest) {
         groupLogo: crew.group.logo,
         todayTotal,
         todayQty,
+        todayStruk,
         weekTotal,
         weekQty,
+        weekStruk,
         monthTotal,
         monthQty,
+        monthStruk,
         allTimeTotal,
         allTimeQty,
+        allTimeStruk,
         transactionCount: aAgg?._count ?? 0,
       }
     })
@@ -201,12 +257,10 @@ export async function GET(request: NextRequest) {
       month: calcTrend(totals.month, lastMonthAgg._sum.settle),
     }
 
-    // Group/Zoning achievements — use aggregated monthMap
-    const weekFraction = weekEnd > 0 ? (weekEnd - weekStart + 1) / daysInMonth : 0.25
-
+    // Group/Zoning achievements — use actual weekly data from weekMap
     const groupAchievements = groups.map(group => {
       const groupMonthTotal = group.crews.reduce((sum, c) => sum + (monthMap.get(c.id)?._sum.settle ?? 0), 0)
-      const weeklyTotal = Math.round(groupMonthTotal * weekFraction)
+      const weeklyTotal = group.crews.reduce((sum, c) => sum + (weekMap.get(c.id)?._sum.settle ?? 0), 0)
       
       let weekTargetPct: number
       switch (currentWeek) {

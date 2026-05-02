@@ -325,7 +325,7 @@ export async function GET(request: NextRequest) {
       where.program = program
     }
 
-    const [sales, total, summary] = await Promise.all([
+    const [sales, total, summary, strukGroups] = await Promise.all([
       db.sale.findMany({
         where,
         include: {
@@ -341,8 +341,13 @@ export async function GET(request: NextRequest) {
       // PERF-01: Use aggregation instead of loading all rows into memory
       db.sale.aggregate({
         _sum: { qty: true, settle: true, hjp: true },
-        _count: true,
         where,
+      }),
+      // Struk count based on UNIQUE idPenjualan (transaction/receipt ID)
+      // One struk (receipt) can have multiple item rows with same idPenjualan
+      db.sale.groupBy({
+        by: ['idPenjualan'],
+        where: { ...where, idPenjualan: { not: null } },
       }),
     ])
 
@@ -351,8 +356,11 @@ export async function GET(request: NextRequest) {
     // Calculate summary stats from aggregation result
     const totalQty = summary._sum.qty ?? 0
     const totalSettle = summary._sum.settle ?? 0
-    const totalStruk = summary._count ?? 0
+    // totalStruk = unique idPenjualan count (number of distinct transactions/receipts)
+    const totalStruk = strukGroups.length
+    // Basket Size = average items per transaction
     const basketSize = totalStruk > 0 ? totalQty / totalStruk : 0
+    // Price Point = average price per item
     const pricePoint = totalQty > 0 ? totalSettle / totalQty : 0
 
     return NextResponse.json({
@@ -518,6 +526,76 @@ export async function PUT(request: NextRequest) {
       { error: 'Terjadi kesalahan saat meng-claim' },
       { status: 500 },
     )
+  }
+}
+
+// ─────────────────────────────────────────────
+// PATCH /api/claims — Edit a sale record (admin)
+// Allows: change crew assignment, edit qty/settle/dept/brand/tanggal
+// ─────────────────────────────────────────────
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { id, crewId, tanggal, kodeExtend, qty, settle, dept, brand, modul, pembayaran, program } = body as Record<string, unknown>
+
+    if (!id || typeof id !== 'string') {
+      return NextResponse.json({ error: 'ID harus diisi' }, { status: 400 })
+    }
+
+    const sale = await db.sale.findUnique({ where: { id } })
+    if (!sale) {
+      return NextResponse.json({ error: 'Data tidak ditemukan' }, { status: 404 })
+    }
+
+    // Build update data object
+    const data: Record<string, unknown> = {}
+
+    // Crew reassignment
+    if (crewId !== undefined) {
+      if (crewId === null || crewId === '') {
+        data.crewId = null
+        data.claimedAt = null
+      } else {
+        // Verify crew exists
+        const crew = await db.crew.findUnique({ where: { id: crewId as string } })
+        if (!crew) {
+          return NextResponse.json({ error: 'Crew tidak ditemukan' }, { status: 404 })
+        }
+        data.crewId = crewId
+        // Set claimedAt if transitioning from unclaimed to claimed
+        if (!sale.crewId) {
+          data.claimedAt = new Date()
+        }
+      }
+    }
+
+    // Editable fields — only update if provided and different
+    if (tanggal !== undefined && typeof tanggal === 'string') data.tanggal = tanggal
+    if (kodeExtend !== undefined && typeof kodeExtend === 'string') data.kodeExtend = kodeExtend
+    if (qty !== undefined && typeof qty === 'number') data.qty = qty
+    if (settle !== undefined && typeof settle === 'number') data.settle = settle
+    if (dept !== undefined) data.dept = dept === '' ? null : dept
+    if (brand !== undefined) data.brand = brand === '' ? null : brand
+    if (modul !== undefined) data.modul = modul === '' ? null : modul
+    if (pembayaran !== undefined) data.pembayaran = pembayaran === '' ? null : pembayaran
+    if (program !== undefined) data.program = program === '' ? null : program
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: 'Tidak ada data yang diubah' }, { status: 400 })
+    }
+
+    const updated = await db.sale.update({
+      where: { id },
+      data,
+      include: {
+        crew: { select: { id: true, name: true, employeeId: true, photo: true } },
+      },
+    })
+
+    return NextResponse.json({ success: true, message: 'Data berhasil diperbarui', sale: updated })
+  } catch (error) {
+    console.error('Edit claim error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan saat mengubah data' }, { status: 500 })
   }
 }
 

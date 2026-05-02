@@ -24,15 +24,18 @@ import {
   ChevronLeft, ChevronRight, DollarSign, ShoppingCart, BarChart3,
   Calendar, Award, Flame, CircleDot, Package, Clock, Shield,
   Sun, Moon, AlertTriangle, UploadCloud, X, Download, Sparkles, Eye, RefreshCw, Percent, ChevronUp, UserCheck,
-  Menu, Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart
+  Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart,
+  CalendarDays, CalendarRange, Hand, PartyPopper, GripVertical
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
 interface CrewStat {
   id: string; name: string; photo: string | null; employeeId: string
   groupId: string; groupName: string; groupLogo: string | null
-  todayTotal: number; todayQty: number; weekTotal: number; weekQty: number
-  monthTotal: number; monthQty: number; allTimeTotal: number; allTimeQty: number
+  todayTotal: number; todayQty: number; todayStruk: number
+  weekTotal: number; weekQty: number; weekStruk: number
+  monthTotal: number; monthQty: number; monthStruk: number
+  allTimeTotal: number; allTimeQty: number; allTimeStruk: number
   transactionCount: number
 }
 
@@ -77,6 +80,19 @@ interface ClaimSale {
   crew: { id: string; name: string; employeeId: string; photo: string | null } | null
 }
 
+interface GroupDetailCrew {
+  id: string; name: string; photo: string | null; employeeId: string
+  totalQty: number; totalSettle: number; totalStruk: number
+  basketSize: number; pricePoint: number; itemCount: number
+}
+
+interface GroupDetailData {
+  group: { id: string; name: string; logo: string | null; monthlyTarget: number }
+  period: string; periodKey: string
+  crews: GroupDetailCrew[]
+  groupTotal: { qty: number; settle: number; struk: number; basketSize: number; pricePoint: number }
+}
+
 interface ScanResult {
   tanggal: string; kodeExtend: string; qty: number; settle: number
   brand: string; dept: string; modul: string; pembayaran: string; program: string
@@ -115,6 +131,40 @@ function getPageNumbers(currentPage: number, totalPages: number): (number | '...
   if (currentPage < totalPages - 2) pages.push('...')
   pages.push(totalPages)
   return pages
+}
+
+// ─── Claim Page Helpers ───────────────────────────────
+function timeAgo(dateStr: string): string {
+  const ago = Date.now() - new Date(dateStr).getTime()
+  if (ago < 60000) return 'baru saja'
+  if (ago < 3600000) return `${Math.floor(ago / 60000)}m lalu`
+  if (ago < 86400000) return `${Math.floor(ago / 3600000)}j lalu`
+  return new Date(dateStr).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+const deptColorMap = ['bg-emerald-500', 'bg-amber-500', 'bg-purple-500', 'bg-cyan-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
+function getDeptColor(dept: string): string {
+  let hash = 0
+  for (let i = 0; i < dept.length; i++) hash = dept.charCodeAt(i) + ((hash << 5) - hash)
+  return deptColorMap[Math.abs(hash) % deptColorMap.length]
+}
+
+function getWeekRange(): { from: string; to: string } {
+  const now = getWIBDate()
+  const dayOfWeek = now.getDay() || 7
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - dayOfWeek + 1)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { from: fmt(monday), to: fmt(sunday) }
+}
+
+function getMonthRange(): { from: string; to: string } {
+  const now = getWIBDate()
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const fmt = (d: number) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  return { from: fmt(1), to: fmt(lastDay) }
 }
 
 // ─── Safe Fetch with Timeout (8s, Vercel has 10s serverless limit) ──
@@ -228,8 +278,16 @@ export default function Home() {
   // Crew detail panel state
   const [selectedCrewDetail, setSelectedCrewDetail] = useState<CrewStat | null>(null)
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // Group/Zoning detail modal state
+  const [selectedGroupDetail, setSelectedGroupDetail] = useState<GroupAchievement | null>(null)
+  const [groupDetailData, setGroupDetailData] = useState<GroupDetailData | null>(null)
+  const [groupDetailPeriod, setGroupDetailPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [groupDetailLoading, setGroupDetailLoading] = useState(false)
+
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'crew' | 'group' | 'sale' | 'batch-sale'; ids?: string[]; id?: string; name: string } | null>(null)
+  const [editSaleDialog, setEditSaleDialog] = useState<ClaimSale | null>(null)
+  const [editSaleForm, setEditSaleForm] = useState({ tanggal: '', kodeExtend: '', qty: 0, settle: 0, dept: '', brand: '', modul: '', pembayaran: '', program: '', crewId: '' })
+  const [editSaleSaving, setEditSaleSaving] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
 
@@ -262,6 +320,7 @@ export default function Home() {
   const [programs, setPrograms] = useState<string[]>([])
   const [selectedSaleIds, setSelectedSaleIds] = useState<Set<string>>(new Set())
   const [claimCrewSearch, setClaimCrewSearch] = useState('')
+  const [selectedClaimCrewId, setSelectedClaimCrewId] = useState('')
   const [claimSummary, setClaimSummary] = useState<{ totalQty: number; totalSettle: number; totalStruk: number; basketSize: number; pricePoint: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -446,8 +505,8 @@ export default function Home() {
 
   const handleClaimSales = async (retryCount = 0) => {
     if (selectedSaleIds.size === 0) return
-    if (!claimCrewSearch) { toast.error('Cari dan pilih crew terlebih dahulu'); return }
-    const crew = crews.find(c => c.id === claimCrewSearch)
+    if (!selectedClaimCrewId) { toast.error('Cari dan pilih crew terlebih dahulu'); return }
+    const crew = crews.find(c => c.id === selectedClaimCrewId)
     if (!crew) { toast.error('Crew tidak ditemukan'); return }
     setClaiming(true)
     try {
@@ -465,6 +524,7 @@ export default function Home() {
         toast.error(`⚠️ Semua data sudah di-claim oleh ${claimers.join(', ')}! Data mungkin sudah diambil oleh device lain.`, { duration: 8000 })
         setSelectedSaleIds(new Set())
         setClaimCrewSearch('')
+        setSelectedClaimCrewId('')
         fetchClaims(claimPage)
         return
       }
@@ -478,6 +538,7 @@ export default function Home() {
         )
         setSelectedSaleIds(new Set())
         setClaimCrewSearch('')
+        setSelectedClaimCrewId('')
         fetchClaims(claimPage)
         fetchDashboard()
         return
@@ -500,6 +561,7 @@ export default function Home() {
       toast.success(`✅ ${d.claimedCount || 0} data berhasil di-claim ke ${crew.name} (${fmtRp(d.totalSettle || 0)})`)
       setSelectedSaleIds(new Set())
       setClaimCrewSearch('')
+      setSelectedClaimCrewId('')
       fetchClaims(claimPage)
       fetchDashboard()
     } catch {
@@ -570,6 +632,52 @@ export default function Home() {
     finally { setBatchDeleting(false) }
   }
 
+  // Open edit sale dialog
+  const openEditSale = (sale: ClaimSale) => {
+    setEditSaleDialog(sale)
+    setEditSaleForm({
+      tanggal: sale.tanggal,
+      kodeExtend: sale.kodeExtend,
+      qty: sale.qty,
+      settle: sale.settle,
+      dept: sale.dept || '',
+      brand: sale.brand || '',
+      modul: sale.modul || '',
+      pembayaran: sale.pembayaran || '',
+      program: sale.program || '',
+      crewId: sale.crew?.id || '',
+    })
+  }
+
+  // Save edited sale
+  const handleSaveEditSale = async () => {
+    if (!editSaleDialog) return
+    setEditSaleSaving(true)
+    try {
+      const body: Record<string, unknown> = {
+        id: editSaleDialog.id,
+        tanggal: editSaleForm.tanggal,
+        kodeExtend: editSaleForm.kodeExtend,
+        qty: Number(editSaleForm.qty),
+        settle: Number(editSaleForm.settle),
+        dept: editSaleForm.dept,
+        brand: editSaleForm.brand,
+        modul: editSaleForm.modul,
+        pembayaran: editSaleForm.pembayaran,
+        program: editSaleForm.program,
+        crewId: editSaleForm.crewId || null,
+      }
+      const r = await fetch('/api/claims', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const d = await r.json()
+      if (d.error) { toast.error(d.error); return }
+      toast.success('Data berhasil diperbarui')
+      setEditSaleDialog(null)
+      fetchClaims(claimPage)
+      fetchDashboard()
+    } catch { toast.error('Gagal mengubah data') }
+    finally { setEditSaleSaving(false) }
+  }
+
   // Filtered management crews
   const filteredMgmtCrews = useMemo(() => {
     if (!mgmtSearch) return mgmtCrews
@@ -598,6 +706,41 @@ export default function Home() {
       g.name.toLowerCase().includes(q)
     )
   }, [groups, mgmtSearch])
+
+  // ─── Claim computed values ───────────────────────────
+  const claimStats = useMemo(() => {
+    const unclaimedInPage = claimSales.filter(s => !s.crew)
+    const claimedInPage = claimSales.filter(s => !!s.crew)
+    return {
+      unclaimedCount: unclaimedInPage.length,
+      claimedCount: claimedInPage.length,
+      unclaimedSettle: unclaimedInPage.reduce((sum, s) => sum + s.settle, 0),
+      claimedSettle: claimedInPage.reduce((sum, s) => sum + s.settle, 0),
+      todayActivity: claimSales.filter(s => s.claimedAt && s.claimedAt.startsWith(todayStr)).length,
+    }
+  }, [claimSales, todayStr])
+
+  const selectedItemsTotal = useMemo(() => {
+    return claimSales.filter(s => selectedSaleIds.has(s.id)).reduce((sum, s) => sum + s.settle, 0)
+  }, [claimSales, selectedSaleIds])
+
+  const selectedItemsPreview = useMemo(() => {
+    return claimSales.filter(s => selectedSaleIds.has(s.id)).slice(0, 3)
+  }, [claimSales, selectedSaleIds])
+
+  const selectedClaimCrew = useMemo(() => {
+    return crews.find(c => c.id === selectedClaimCrewId) || null
+  }, [crews, selectedClaimCrewId])
+
+  const activeQuickFilter = useMemo((): 'today' | 'week' | 'month' | 'all' | 'custom' => {
+    const week = getWeekRange()
+    const month = getMonthRange()
+    if (claimDateFrom === todayStr && claimDateTo === todayStr) return 'today'
+    if (claimDateFrom === week.from && claimDateTo === week.to) return 'week'
+    if (claimDateFrom === month.from && claimDateTo === month.to) return 'month'
+    if (!claimDateFrom && !claimDateTo) return 'all'
+    return 'custom'
+  }, [claimDateFrom, claimDateTo, todayStr])
 
   // ─── Management handlers ──────────────────────────────
   const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string }) => {
@@ -642,6 +785,25 @@ export default function Home() {
       toast.success('Group dihapus'); fetchManagement()
     } catch { toast.error('Gagal menghapus group') }
   }
+
+  // ─── Group Detail fetch ──────────────────────────────
+  const fetchGroupDetail = useCallback(async (groupId: string, period: 'daily' | 'weekly' | 'monthly') => {
+    setGroupDetailLoading(true)
+    try {
+      const r = await safeFetch(`/api/dashboard/group-detail?groupId=${groupId}&period=${period}`)
+      const d = await r.json()
+      if (d.error) { toast.error(d.error); return }
+      setGroupDetailData(d)
+    } catch { toast.error('Gagal memuat detail grup') }
+    finally { setGroupDetailLoading(false) }
+  }, [])
+
+  // Open group detail when selectedGroupDetail changes
+  useEffect(() => {
+    if (selectedGroupDetail) {
+      fetchGroupDetail(selectedGroupDetail.id, groupDetailPeriod)
+    }
+  }, [selectedGroupDetail, groupDetailPeriod, fetchGroupDetail])
 
   const handleExport = async () => {
     try {
@@ -745,71 +907,10 @@ export default function Home() {
                       </Button>
                     </motion.div>
                   )}
-                  {/* Mobile hamburger */}
-                  <Button variant="ghost" size="icon" className="md:hidden h-9 w-9 rounded-xl" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-                    <motion.span key={mobileMenuOpen ? 'open' : 'closed'} initial={false} animate={{ rotate: mobileMenuOpen ? 90 : 0 }} transition={{ duration: 0.2 }}>
-                      {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-                    </motion.span>
-                  </Button>
                 </div>
               </div>
             </div>
           </div>
-
-          {/* Mobile slide-down menu */}
-          <AnimatePresence>
-            {mobileMenuOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="md:hidden overflow-hidden bg-white/95 dark:bg-gray-950/95 backdrop-blur-2xl border-b border-border/50"
-              >
-                <div className="max-w-7xl mx-auto px-3 py-3 space-y-1">
-                  {/* Mobile: CMS Crew label for xs screens */}
-                  <div className="xs:hidden flex items-center gap-2 px-3 pb-2 mb-2 border-b border-border/50">
-                    <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center">
-                      <Layers className="w-3 h-3 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-extrabold bg-gradient-to-r from-emerald-600 to-teal-700 dark:from-emerald-400 dark:to-teal-400 bg-clip-text text-transparent">CMS Crew</p>
-                      <p className="text-[9px] text-muted-foreground">Ahtjong Labs · {dateStr}</p>
-                    </div>
-                  </div>
-                  {navItems.map(t => (
-                    <button
-                      key={t.val}
-                      onClick={() => { setActiveTab(t.val); setMobileMenuOpen(false) }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                        activeTab === t.val
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${activeTab === t.val ? 'bg-emerald-100 dark:bg-emerald-900' : 'bg-muted/60'}`}>
-                        <t.icon className="w-4 h-4" />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-sm font-semibold">{t.label}</p>
-                        <p className="text-[10px] text-muted-foreground">{t.desc}</p>
-                      </div>
-                    </button>
-                  ))}
-                  {isAdmin && (
-                    <div className="pt-2 mt-2 border-t border-border/50 flex items-center justify-between px-3">
-                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800 text-[10px]">
-                        <Shield className="w-3 h-3 mr-1" /> Admin
-                      </Badge>
-                      <Button variant="ghost" size="sm" onClick={handleLogout} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs h-8">
-                        <LogOut className="w-3.5 h-3.5 mr-1" /> Logout
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Quick Stats Ribbon (desktop only) */}
           {dashboard && !dashLoading && (
@@ -1258,8 +1359,11 @@ export default function Home() {
                         ) : (
                           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {dashboard.groupAchievements.map((g) => (
-                              <motion.div key={g.id} whileHover={{ y: -4, transition: { type: 'spring', stiffness: 300 } }}>
-                                <Card className="border-0 shadow-md bg-gradient-to-br from-white to-gray-50/80 dark:from-gray-900 dark:to-gray-800/80 overflow-hidden">
+                              <motion.div key={g.id} whileHover={{ y: -4, transition: { type: 'spring', stiffness: 300 } }} whileTap={{ scale: 0.98 }}>
+                                <Card
+                                  className="border-0 shadow-md bg-gradient-to-br from-white to-gray-50/80 dark:from-gray-900 dark:to-gray-800/80 overflow-hidden cursor-pointer hover:ring-2 hover:ring-emerald-400/50 dark:hover:ring-emerald-600/40 transition-all duration-200"
+                                  onClick={() => { setSelectedGroupDetail(g); setGroupDetailPeriod('daily') }}
+                                >
                                   <CardContent className="p-5">
                                     <div className="flex items-center gap-3 mb-4">
                                       <Avatar className="w-12 h-12 border-2 border-emerald-200 dark:border-emerald-800">
@@ -1301,6 +1405,12 @@ export default function Home() {
                                       <p className="text-xs text-muted-foreground">
                                         {fmtRp(g.weeklyTotal)} / {fmtRp(g.weeklyTarget)}
                                       </p>
+                                    </div>
+
+                                    {/* Click hint */}
+                                    <div className="mt-3 pt-2 border-t border-border/30 flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
+                                      <Eye className="w-3 h-3" />
+                                      <span>Lihat Detail Crew</span>
                                     </div>
                                   </CardContent>
                                 </Card>
@@ -1546,6 +1656,67 @@ export default function Home() {
                   </DialogContent>
                 </Dialog>
 
+                {/* ── Claim Stats Hero Section ── */}
+                {claimTotal > 0 && !claimsLoading && (
+                  <motion.div {...fadeIn} transition={{ delay: 0.05 }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {[
+                        {
+                          label: 'Belum Di-Claim',
+                          count: claimStats.unclaimedCount,
+                          value: fmtRp(claimStats.unclaimedSettle),
+                          icon: Clock,
+                          gradient: 'from-amber-400 to-orange-500',
+                          bgLight: 'bg-amber-50 dark:bg-amber-950/20',
+                          borderLight: 'border-amber-200/60 dark:border-amber-800/40',
+                          textColor: 'text-amber-700 dark:text-amber-400',
+                          iconBg: 'bg-amber-100 dark:bg-amber-900/60',
+                        },
+                        {
+                          label: 'Sudah Di-Claim',
+                          count: claimStats.claimedCount,
+                          value: fmtRp(claimStats.claimedSettle),
+                          icon: CheckCircle2,
+                          gradient: 'from-emerald-400 to-emerald-600',
+                          bgLight: 'bg-emerald-50 dark:bg-emerald-950/20',
+                          borderLight: 'border-emerald-200/60 dark:border-emerald-800/40',
+                          textColor: 'text-emerald-700 dark:text-emerald-400',
+                          iconBg: 'bg-emerald-100 dark:bg-emerald-900/60',
+                        },
+                        {
+                          label: 'Aktivitas Hari Ini',
+                          count: claimStats.todayActivity,
+                          value: `${claimStats.todayActivity} claim`,
+                          icon: Flame,
+                          gradient: 'from-rose-400 to-pink-600',
+                          bgLight: 'bg-rose-50 dark:bg-rose-950/20',
+                          borderLight: 'border-rose-200/60 dark:border-rose-800/40',
+                          textColor: 'text-rose-700 dark:text-rose-400',
+                          iconBg: 'bg-rose-100 dark:bg-rose-900/60',
+                        },
+                      ].map((stat, i) => (
+                        <motion.div key={i} whileHover={{ y: -2, transition: { type: 'spring', stiffness: 300 } }}>
+                          <div className={`relative overflow-hidden rounded-xl border ${stat.borderLight} ${stat.bgLight} p-4`}>
+                            <div className={`absolute top-0 right-0 w-20 h-20 bg-gradient-to-br ${stat.gradient} opacity-[0.07] rounded-full -translate-y-6 translate-x-6`} />
+                            <div className="relative flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-lg shrink-0`}>
+                                <stat.icon className="w-5 h-5 text-white" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">{stat.label}</p>
+                                <p className={`text-lg sm:text-xl font-bold ${stat.textColor} tracking-tight`}>
+                                  <AnimatedCounter value={stat.count} />
+                                </p>
+                                <p className={`text-[10px] sm:text-xs ${stat.textColor} font-medium opacity-70`}>{stat.value}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Section 2: Summary Cards — Total Settle, Qty, Basket Size, Price Point */}
                 {claimSummary && claimTotal > 0 && !claimsLoading && (
                   <motion.div {...fadeIn} transition={{ delay: 0.1 }}>
@@ -1554,7 +1725,7 @@ export default function Home() {
                         { label: 'Total Settle', value: fmtRp(claimSummary.totalSettle ?? 0), icon: DollarSign, gradient: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-500/20', sub: `${fmtNum(claimTotal)} data` },
                         { label: 'Total Qty', value: fmtNum(claimSummary.totalQty ?? 0), icon: Package, gradient: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-500/20', sub: 'jumlah item' },
                         { label: 'Basket Size', value: (claimSummary.basketSize ?? 0).toFixed(2), icon: ShoppingCart, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20', sub: `${fmtNum(claimSummary.totalStruk ?? 0)} struk` },
-                        { label: 'Price Point', value: fmtRp(claimSummary.pricePoint ?? 0), icon: Percent, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', sub: 'rata-rata HJP' },
+                        { label: 'Price Point', value: fmtRp(claimSummary.pricePoint ?? 0), icon: Percent, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', sub: 'per item' },
                       ].map((s, i) => (
                         <motion.div key={i} whileHover={{ y: -2, transition: { type: 'spring', stiffness: 300 } }}>
                           <Card className="border-0 shadow-md card-hover-glow overflow-hidden">
@@ -1582,65 +1753,113 @@ export default function Home() {
                       <Card className="border-2 border-emerald-300 dark:border-emerald-700 shadow-lg shadow-emerald-500/10 overflow-hidden">
                         <CardContent className="p-3 sm:p-4">
                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 shrink-0">
-                              <CheckCircle2 className="w-3 h-3 mr-1" />{selectedSaleIds.size} item terpilih
-                            </Badge>
-                            <div className="relative flex-1 w-full sm:max-w-xs">
-                              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                              <Input
-                                placeholder="Cari nama crew..."
-                                value={claimCrewSearch}
-                                onChange={e => setClaimCrewSearch(e.target.value)}
-                                className="pl-9 h-9 w-full"
-                              />
-                              {claimCrewResults.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-white dark:bg-gray-900 shadow-lg z-50 max-h-48 overflow-y-auto">
-                                  {claimCrewResults.map(c => (
-                                    <button
-                                      key={c.id}
-                                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
-                                      onClick={() => setClaimCrewSearch(c.id)}
-                                    >
-                                      <Avatar className="w-6 h-6">
-                                        <AvatarImage src={c.photo || ''} />
-                                        <AvatarFallback className="text-[8px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
-                                          {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium truncate">{c.name}</p>
-                                        <p className="text-[10px] text-muted-foreground">{c.employeeId} — {c.group?.name}</p>
-                                      </div>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
+                            {/* Selected info with total settle */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
+                                <CheckCircle2 className="w-3 h-3 mr-1" />{selectedSaleIds.size} item
+                              </Badge>
+                              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(selectedItemsTotal)}</span>
                             </div>
-                            <div className="flex items-center gap-2 w-full sm:w-auto">
-                              <Button
-                                onClick={() => handleClaimSales(0)}
-                                disabled={claiming || !crews.find(c => c.id === claimCrewSearch)}
-                                className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {claiming ? (
-                                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />Claiming...</>
-                                ) : (
-                                  <><UserCheck className="w-4 h-4 mr-2" />Claim ({selectedSaleIds.size})</>
+
+                            {/* Selected items preview badges */}
+                            {selectedItemsPreview.length > 0 && (
+                              <div className="flex items-center gap-1 overflow-hidden flex-1 min-w-0 max-w-full sm:max-w-[200px]">
+                                {selectedItemsPreview.map((s, i) => (
+                                  <Badge key={s.id} variant="outline" className="text-[9px] px-1.5 py-0 h-5 font-mono shrink-0 bg-muted/50 border-border/50">
+                                    {s.kodeExtend.length > 10 ? s.kodeExtend.slice(0, 10) + '…' : s.kodeExtend}
+                                  </Badge>
+                                ))}
+                                {selectedSaleIds.size > 3 && (
+                                  <span className="text-[10px] text-muted-foreground shrink-0">+{selectedSaleIds.size - 3}</span>
                                 )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                onClick={() => setSelectedSaleIds(new Set())}
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-                                title="Batal pilih"
-                              >
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </div>
+                              </div>
+                            )}
+
+                            {/* Separator */}
+                            <div className="hidden sm:block w-px h-8 bg-border/50" />
+
+                            {/* Crew search or selected crew chip */}
+                            {selectedClaimCrew && selectedClaimCrewId ? (
+                              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex-1 sm:flex-none">
+                                  <Avatar className="w-5 h-5">
+                                    <AvatarImage src={selectedClaimCrew.photo || ''} />
+                                    <AvatarFallback className="text-[7px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                                      {selectedClaimCrew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 truncate">{selectedClaimCrew.name}</span>
+                                  <button onClick={() => { setSelectedClaimCrewId(''); setClaimCrewSearch('') }} className="ml-1 text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-300">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 w-full sm:w-auto">
+                                  <Button
+                                    onClick={() => handleClaimSales(0)}
+                                    disabled={claiming}
+                                    className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed animate-pulse-glow"
+                                  >
+                                    {claiming ? (
+                                      <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />Claiming...</>
+                                    ) : (
+                                      <><UserCheck className="w-4 h-4 mr-2" />Claim ({selectedSaleIds.size})</>
+                                    )}
+                                  </Button>
+                                  <Button variant="ghost" onClick={() => setSelectedSaleIds(new Set())} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 shrink-0" title="Batal pilih">
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="relative flex-1 w-full sm:max-w-xs">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  placeholder="Cari nama crew..."
+                                  value={claimCrewSearch}
+                                  onChange={e => { setClaimCrewSearch(e.target.value); setSelectedClaimCrewId('') }}
+                                  className="pl-9 h-9 w-full"
+                                />
+                                {!selectedClaimCrewId && claimCrewResults.length > 0 && (
+                                  <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-white dark:bg-gray-900 shadow-lg z-50 max-h-48 overflow-y-auto">
+                                    {claimCrewResults.map(c => (
+                                      <button
+                                        key={c.id}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+                                        onClick={() => { setClaimCrewSearch(c.name); setSelectedClaimCrewId(c.id) }}
+                                      >
+                                        <Avatar className="w-6 h-6">
+                                          <AvatarImage src={c.photo || ''} />
+                                          <AvatarFallback className="text-[8px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                                            {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                          </AvatarFallback>
+                                        </Avatar>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium truncate">{c.name}</p>
+                                          <p className="text-[10px] text-muted-foreground">{c.employeeId} — {c.group?.name}</p>
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-2 w-full sm:w-auto mt-2">
+                                  <Button
+                                    onClick={() => handleClaimSales(0)}
+                                    disabled={true}
+                                    className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <><UserCheck className="w-4 h-4 mr-2" />Claim ({selectedSaleIds.size})</>
+                                  </Button>
+                                  <Button variant="ghost" onClick={() => setSelectedSaleIds(new Set())} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 shrink-0" title="Batal pilih">
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+
                             {/* Real-time claim lock indicator */}
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
                               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              <span>Anti double-claim aktif — hanya 1 device yang bisa claim per data</span>
+                              <span>Anti double-claim aktif</span>
                             </div>
                           </div>
                         </CardContent>
@@ -1693,6 +1912,34 @@ export default function Home() {
                               }`}
                             >
                               {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Quick Filter Chips */}
+                        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-0.5">
+                          {[
+                            { val: 'today' as const, label: 'Hari Ini', icon: CalendarDays },
+                            { val: 'week' as const, label: 'Minggu Ini', icon: CalendarRange },
+                            { val: 'month' as const, label: 'Bulan Ini', icon: Calendar },
+                            { val: 'all' as const, label: 'Semua Tanggal', icon: Clock },
+                          ].map(chip => (
+                            <button
+                              key={chip.val}
+                              onClick={() => {
+                                if (chip.val === 'today') { setClaimDateFrom(todayStr); setClaimDateTo(todayStr) }
+                                else if (chip.val === 'week') { const r = getWeekRange(); setClaimDateFrom(r.from); setClaimDateTo(r.to) }
+                                else if (chip.val === 'month') { const r = getMonthRange(); setClaimDateFrom(r.from); setClaimDateTo(r.to) }
+                                else { setClaimDateFrom(''); setClaimDateTo('') }
+                              }}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all border ${
+                                activeQuickFilter === chip.val
+                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-700 shadow-sm'
+                                  : 'bg-muted/40 text-muted-foreground border-border/50 hover:bg-muted/70 hover:text-foreground'
+                              }`}
+                            >
+                              <chip.icon className="w-3 h-3" />
+                              {chip.label}
                             </button>
                           ))}
                         </div>
@@ -1770,6 +2017,31 @@ export default function Home() {
                           </div>
                         </div>
                       ) : claimSales.length === 0 ? (
+                        claimShowClaimed === 'unclaimed' ? (
+                          <div className="text-center py-12">
+                            <motion.div
+                              animate={{ scale: [1, 1.1, 1] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                              className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-950/40 dark:to-emerald-900/40 flex items-center justify-center"
+                            >
+                              <PartyPopper className="w-10 h-10 text-emerald-500 dark:text-emerald-400" />
+                            </motion.div>
+                            <h3 className="text-base font-bold text-foreground mb-1">Semua data sudah di-claim! 🎉</h3>
+                            <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Tidak ada data yang belum di-claim pada filter ini</p>
+                          </div>
+                        ) : claimShowClaimed === 'claimed' ? (
+                          <div className="text-center py-12">
+                            <motion.div
+                              animate={{ y: [0, -8, 0] }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-950/40 dark:to-orange-950/40 flex items-center justify-center"
+                            >
+                              <Clock className="w-10 h-10 text-amber-400 dark:text-amber-600" />
+                            </motion.div>
+                            <h3 className="text-base font-bold text-foreground mb-1">Belum Ada Data yang Di-claim</h3>
+                            <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Data penjualan yang sudah di-claim akan muncul di sini</p>
+                          </div>
+                        ) : (
                         <div className="text-center py-12">
                           <motion.div
                             animate={{ y: [0, -8, 0] }}
@@ -1784,6 +2056,7 @@ export default function Home() {
                             <Upload className="w-3.5 h-3.5 mr-1.5" />Upload Penjualan
                           </Button>
                         </div>
+                        )
                       ) : (
                         <>
                           {/* Mobile Card View */}
@@ -1793,9 +2066,11 @@ export default function Home() {
                                 key={sale.id}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className={`p-3 rounded-lg border bg-white dark:bg-gray-900 ${selectedSaleIds.has(sale.id) ? 'border-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800' : ''}`}
+                                whileTap={{ scale: 0.98 }}
+                                className={`p-3 rounded-lg border bg-white dark:bg-gray-900 transition-all duration-200 active:scale-[0.98] ${selectedSaleIds.has(sale.id) ? 'border-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800 shadow-md shadow-emerald-500/10' : 'hover:shadow-sm'}`}
                                 style={{ borderLeftWidth: '3px', borderLeftColor: sale.crew ? '#059669' : '#f59e0b' }}
                               >
+                                {/* Top row: checkbox, kode, status badge, settle */}
                                 <div className="flex items-center gap-2 mb-1.5">
                                   {!sale.crew && (
                                     <button
@@ -1812,18 +2087,46 @@ export default function Home() {
                                     </button>
                                   )}
                                   <div className="flex-1 min-w-0">
-                                    <span className="text-xs font-mono font-medium truncate">{sale.kodeExtend}</span>
+                                    <span className="text-xs font-mono font-bold truncate block">{sale.kodeExtend}</span>
                                   </div>
-                                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(sale.settle)}</span>
+                                  {/* Claim status badge */}
+                                  {sale.crew ? (
+                                    <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[9px] px-1.5 py-0 h-5 shrink-0">
+                                      <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />Claimed
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border-amber-200 dark:border-amber-800 text-[9px] px-1.5 py-0 h-5 shrink-0">
+                                      Belum Claim
+                                    </Badge>
+                                  )}
                                 </div>
+
+                                {/* Settle amount — prominent */}
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(sale.settle)}</span>
+                                  {sale.claimedAt && (
+                                    <span className="text-[9px] text-muted-foreground ml-auto">{timeAgo(sale.claimedAt)}</span>
+                                  )}
+                                </div>
+
+                                {/* Details grid */}
                                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                                  <div className="text-muted-foreground">Tanggal</div>
+                                  <div className="text-muted-foreground flex items-center gap-1">
+                                    <Calendar className="w-2.5 h-2.5" />Tanggal
+                                  </div>
                                   <div className="text-right">{sale.tanggal}</div>
+                                  {sale.dept && (
+                                    <>
+                                      <div className="text-muted-foreground flex items-center gap-1">
+                                        <div className={`w-2 h-2 rounded-full ${getDeptColor(sale.dept)} shrink-0`} />
+                                        Dept
+                                      </div>
+                                      <div className="text-right">{sale.dept}</div>
+                                    </>
+                                  )}
                                   {sale.brand && (<><div className="text-muted-foreground">Brand</div><div className="text-right truncate">{sale.brand}</div></>)}
-                                  <div className="text-muted-foreground">Dept</div>
-                                  <div className="text-right">{sale.dept || '-'}</div>
                                   <div className="text-muted-foreground">Qty</div>
-                                  <div className="text-right">{sale.qty}</div>
+                                  <div className="text-right font-medium">{sale.qty}</div>
                                   <div className="text-muted-foreground">Crew</div>
                                   <div className="text-right">
                                     {sale.crew ? (
@@ -1834,10 +2137,39 @@ export default function Home() {
                                         )}
                                       </div>
                                     ) : (
-                                      <span className="text-amber-500 dark:text-amber-400 italic">Belum di-claim</span>
+                                      <div className="flex items-center justify-end gap-1">
+                                        <span className="text-amber-500 dark:text-amber-400 italic">Belum di-claim</span>
+                                        <GripVertical className="w-3 h-3 text-muted-foreground/30" />
+                                      </div>
                                     )}
                                   </div>
+                                  {/* Payment & Program badges */}
+                                  {sale.pembayaran && (
+                                    <>
+                                      <div className="text-muted-foreground">Pembayaran</div>
+                                      <div className="text-right">
+                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-border/50">{sale.pembayaran}</Badge>
+                                      </div>
+                                    </>
+                                  )}
+                                  {sale.program && (
+                                    <>
+                                      <div className="text-muted-foreground">Program</div>
+                                      <div className="text-right">
+                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400">{sale.program}</Badge>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
+                                {isAdmin && (
+                                  <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-border/50">
+                                    <button onClick={() => openEditSale(sale)} className="flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"><Edit2 className="w-3 h-3" /> Edit</button>
+                                    <button onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-3 h-3" /> Hapus</button>
+                                    {sale.crew && (
+                                      <button onClick={() => handleUnclaimSale(sale.id)} className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-700 transition-colors ml-auto"><X className="w-3 h-3" /> Unclaim</button>
+                                    )}
+                                  </div>
+                                )}
                               </motion.div>
                             ))}
                           </div>
@@ -1880,15 +2212,17 @@ export default function Home() {
                                   <TableHead className="text-right min-w-[110px] cursor-pointer select-none" onClick={() => { if (claimSortField === 'settle') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('settle'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center justify-end gap-1">Settle{claimSortField === 'settle' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
+                                  <TableHead className="min-w-[80px]">Pembayaran</TableHead>
+                                  <TableHead className="min-w-[80px]">Program</TableHead>
                                   <TableHead className="min-w-[160px]">Crew</TableHead>
-                                  {isAdmin && <TableHead className="w-[50px]">Aksi</TableHead>}
+                                  {isAdmin && <TableHead className="w-[80px]">Aksi</TableHead>}
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {sortedClaimSales.map((sale) => (
                                   <TableRow
                                     key={sale.id}
-                                    className={`hover:bg-muted/30 transition-colors ${selectedSaleIds.has(sale.id) ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}
+                                    className={`hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 transition-all duration-150 ${selectedSaleIds.has(sale.id) ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}
                                     style={{ borderLeftWidth: '3px', borderLeftColor: sale.crew ? '#059669' : '#f59e0b' }}
                                   >
                                     {/* Checkbox — only for unclaimed */}
@@ -1922,10 +2256,27 @@ export default function Home() {
                                       ) : null}
                                     </TableCell>
                                     <TableCell className="text-xs whitespace-nowrap">{sale.tanggal}</TableCell>
-                                    <TableCell className="text-xs">{sale.dept || '-'}</TableCell>
-                                    <TableCell className="text-xs font-mono whitespace-nowrap">{sale.kodeExtend}</TableCell>
+                                    <TableCell className="text-xs">
+                                      <div className="flex items-center gap-1.5">
+                                        {sale.dept && <div className={`w-2 h-2 rounded-full ${getDeptColor(sale.dept)} shrink-0`} />}
+                                        {sale.dept || '-'}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="text-xs font-mono whitespace-nowrap font-medium">{sale.kodeExtend}</TableCell>
                                     <TableCell className="text-xs text-right">{sale.qty}</TableCell>
                                     <TableCell className="text-xs text-right font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{fmtRp(sale.settle)}</TableCell>
+                                    {/* Pembayaran column */}
+                                    <TableCell>
+                                      {sale.pembayaran ? (
+                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-5 border-border/50 font-normal">{sale.pembayaran}</Badge>
+                                      ) : <span className="text-xs text-muted-foreground">-</span>}
+                                    </TableCell>
+                                    {/* Program column */}
+                                    <TableCell>
+                                      {sale.program ? (
+                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-5 border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 font-normal">{sale.program}</Badge>
+                                      ) : <span className="text-xs text-muted-foreground">-</span>}
+                                    </TableCell>
                                     {/* Crew column */}
                                     <TableCell>
                                       {sale.crew ? (
@@ -1943,14 +2294,7 @@ export default function Home() {
                                           <div className="flex flex-col min-w-0">
                                             <span className="text-xs truncate max-w-[120px] font-medium">{sale.crew?.name || 'Unknown'}</span>
                                             {sale.claimedAt && (
-                                              <span className="text-[9px] text-muted-foreground">
-                                                {(() => {
-                                                  const ago = Date.now() - new Date(sale.claimedAt).getTime()
-                                                  if (ago < 60000) return 'baru saja'
-                                                  if (ago < 3600000) return `${Math.floor(ago / 60000)}m lalu`
-                                                  return new Date(sale.claimedAt).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-                                                })()}
-                                              </span>
+                                              <span className="text-[9px] text-muted-foreground">{timeAgo(sale.claimedAt)}</span>
                                             )}
                                           </div>
                                           {isAdmin && (
@@ -1972,9 +2316,14 @@ export default function Home() {
                                     </TableCell>
                                     {isAdmin && (
                                       <TableCell>
-                                        <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })}>
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </Button>
+                                        <div className="flex items-center gap-0.5">
+                                          <Button size="icon" variant="ghost" className="h-7 w-7 text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => openEditSale(sale)}>
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </Button>
+                                          <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })}>
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </Button>
+                                        </div>
                                       </TableCell>
                                     )}
                                   </TableRow>
@@ -2017,6 +2366,54 @@ export default function Home() {
                     </CardContent>
                   </Card>
                 </motion.div>
+
+                {/* ── Mobile Selected Items Summary Bar ── */}
+                <AnimatePresence>
+                  {selectedSaleIds.size > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 20 }}
+                      className="md:hidden fixed bottom-16 left-0 right-0 z-40 px-3 pb-1"
+                    >
+                      <div className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-border/60 rounded-2xl shadow-xl shadow-black/10 p-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
+                              {selectedSaleIds.size} item
+                            </Badge>
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 truncate">{fmtRp(selectedItemsTotal)}</span>
+                          </div>
+                          {selectedClaimCrew && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                              → {selectedClaimCrew.name}
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => handleClaimSales(0)}
+                          disabled={claiming || !selectedClaimCrewId}
+                          className="h-9 bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed text-xs px-4"
+                        >
+                          {claiming ? (
+                            <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />Claim...</>
+                          ) : (
+                            <><UserCheck className="w-3.5 h-3.5 mr-1.5" />Claim</>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setSelectedSaleIds(new Set())}
+                          className="h-9 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs px-3"
+                        >
+                          Batal
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             </TabsContent>
 
@@ -2350,10 +2747,10 @@ export default function Home() {
 
                 <div className="space-y-3">
                   {[
-                    { label: 'Hari Ini', value: selectedCrewDetail.todayTotal, qty: selectedCrewDetail.todayQty, icon: Zap, color: 'from-emerald-500 to-teal-600' },
-                    { label: 'Minggu Ini', value: selectedCrewDetail.weekTotal, qty: selectedCrewDetail.weekQty, icon: TrendingUp, color: 'from-amber-500 to-orange-600' },
-                    { label: 'Bulan Ini', value: selectedCrewDetail.monthTotal, qty: selectedCrewDetail.monthQty, icon: BarChart3, color: 'from-purple-500 to-violet-600' },
-                    { label: 'All Time', value: selectedCrewDetail.allTimeTotal, qty: selectedCrewDetail.allTimeQty, icon: Flame, color: 'from-cyan-500 to-sky-600' },
+                    { label: 'Hari Ini', value: selectedCrewDetail.todayTotal, qty: selectedCrewDetail.todayQty, struk: selectedCrewDetail.todayStruk, icon: Zap, color: 'from-emerald-500 to-teal-600' },
+                    { label: 'Minggu Ini', value: selectedCrewDetail.weekTotal, qty: selectedCrewDetail.weekQty, struk: selectedCrewDetail.weekStruk, icon: TrendingUp, color: 'from-amber-500 to-orange-600' },
+                    { label: 'Bulan Ini', value: selectedCrewDetail.monthTotal, qty: selectedCrewDetail.monthQty, struk: selectedCrewDetail.monthStruk, icon: BarChart3, color: 'from-purple-500 to-violet-600' },
+                    { label: 'All Time', value: selectedCrewDetail.allTimeTotal, qty: selectedCrewDetail.allTimeQty, struk: selectedCrewDetail.allTimeStruk, icon: Flame, color: 'from-cyan-500 to-sky-600' },
                   ].map((s, i) => (
                     <motion.div key={i} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
                       <div className="flex items-center gap-3 p-3 rounded-xl border bg-gradient-to-r from-white to-gray-50/50 dark:from-gray-800 dark:to-gray-900">
@@ -2364,15 +2761,28 @@ export default function Home() {
                           <p className="text-xs text-muted-foreground">{s.label}</p>
                           <p className="font-bold">{fmtRp(s.value)}</p>
                         </div>
-                        <Badge variant="outline" className="text-xs">{fmtNum(s.qty)} qty</Badge>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <Badge variant="outline" className="text-[10px] px-1.5">{fmtNum(s.qty)} qty</Badge>
+                          <span className="text-[10px] text-muted-foreground">{fmtNum(s.struk)} struk</span>
+                        </div>
+                      </div>
+                      {/* Basket Size & Price Point row */}
+                      <div className="ml-13 mt-1 flex items-center gap-3 text-[10px] px-1">
+                        <span className="text-purple-600 dark:text-purple-400 font-medium">
+                          🧺 Basket: {(s.struk > 0 ? (s.qty / s.struk).toFixed(2) : '0.00')}
+                        </span>
+                        <span className="text-cyan-600 dark:text-cyan-400 font-medium">
+                          💰 Price Point: {fmtRp(s.qty > 0 ? Math.round(s.value / s.qty) : 0)}
+                        </span>
                       </div>
                     </motion.div>
                   ))}
                 </div>
 
                 <div className="p-3 rounded-xl bg-muted/50 border text-center">
-                  <p className="text-xs text-muted-foreground">Total Transaksi</p>
+                  <p className="text-xs text-muted-foreground">Total Transaksi (item rows)</p>
                   <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtNum(selectedCrewDetail.transactionCount)}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{fmtNum(selectedCrewDetail.allTimeStruk)} struk unik (id transaksi)</p>
                 </div>
               </div>
             </motion.div>
@@ -2380,7 +2790,209 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* ─── Delete Confirmation Dialog ──────────────── */}
+      {/* ─── Group/Zoning Detail Modal ──────────────── */}
+      <AnimatePresence>
+        {selectedGroupDetail && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40" onClick={() => setSelectedGroupDetail(null)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed inset-2 sm:inset-6 md:inset-10 lg:inset-16 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-emerald-50 to-teal-50/50 dark:from-gray-800 dark:to-gray-900 shrink-0">
+                <div className="flex items-center gap-3">
+                  <Avatar className="w-10 h-10 border-2 border-emerald-200 dark:border-emerald-700">
+                    <AvatarImage src={selectedGroupDetail.logo || ''} />
+                    <AvatarFallback className="bg-gradient-to-br from-emerald-400 to-teal-500 text-white font-bold">
+                      {selectedGroupDetail.name.split(' ').slice(-1)[0][0]}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold">{selectedGroupDetail.name}</h3>
+                    <p className="text-xs text-muted-foreground">Detail Performa Crew per Periode</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Period filter tabs */}
+                  <div className="flex items-center bg-muted/80 rounded-lg p-0.5">
+                    {([['daily', 'Harian'], ['weekly', 'Mingguan'], ['monthly', 'Bulanan']] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setGroupDetailPeriod(key)}
+                        className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium rounded-md transition-all duration-200 ${
+                          groupDetailPeriod === key
+                            ? 'bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setSelectedGroupDetail(null)}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                {groupDetailLoading || !groupDetailData ? (
+                  <div className="space-y-4 animate-pulse">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-20 bg-muted rounded-xl" />
+                      ))}
+                    </div>
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="h-14 bg-muted rounded-xl" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Period label */}
+                    <p className="text-sm text-muted-foreground text-center">
+                      Periode: <span className="font-semibold text-foreground">{groupDetailData.period}</span>
+                    </p>
+
+                    {/* Group Summary Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      {[
+                        { label: 'Total Qty', value: fmtNum(groupDetailData.groupTotal.qty), icon: Package, gradient: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-500/20' },
+                        { label: 'Total Penjualan', value: fmtRp(groupDetailData.groupTotal.settle), icon: DollarSign, gradient: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-500/20' },
+                        { label: 'Total Struk', value: fmtNum(groupDetailData.groupTotal.struk), icon: ShoppingCart, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20' },
+                        { label: 'Basket Size', value: groupDetailData.groupTotal.basketSize.toFixed(2), icon: Layers, gradient: 'from-rose-500 to-pink-600', shadow: 'shadow-rose-500/20' },
+                        { label: 'Price Point', value: fmtRp(groupDetailData.groupTotal.pricePoint), icon: Percent, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20' },
+                      ].map((s, i) => (
+                        <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                          <div className="p-3 rounded-xl border bg-gradient-to-br from-white to-gray-50/50 dark:from-gray-800 dark:to-gray-900 text-center">
+                            <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${s.gradient} ${s.shadow} shadow flex items-center justify-center mx-auto mb-1.5`}>
+                              <s.icon className="w-4 h-4 text-white" />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                            <p className="text-sm font-bold truncate">{s.value}</p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Crew List */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Users className="w-4 h-4 text-emerald-500" />
+                        <h4 className="font-bold text-sm">Daftar Crew ({groupDetailData.crews.length})</h4>
+                      </div>
+
+                      {groupDetailData.crews.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">Belum ada data crew untuk periode ini</p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Desktop Table */}
+                          <div className="hidden md:block rounded-xl border overflow-hidden">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-muted/50">
+                                  <TableHead className="text-[10px] uppercase tracking-wider">#</TableHead>
+                                  <TableHead className="text-[10px] uppercase tracking-wider">Crew</TableHead>
+                                  <TableHead className="text-[10px] uppercase tracking-wider text-right">Total Qty</TableHead>
+                                  <TableHead className="text-[10px] uppercase tracking-wider text-right">Penjualan</TableHead>
+                                  <TableHead className="text-[10px] uppercase tracking-wider text-right">Struk</TableHead>
+                                  <TableHead className="text-[10px] uppercase tracking-wider text-right">Basket Size</TableHead>
+                                  <TableHead className="text-[10px] uppercase tracking-wider text-right">Price Point</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {groupDetailData.crews.map((c, idx) => (
+                                  <TableRow key={c.id} className={`transition-colors ${idx === 0 ? 'bg-amber-50/50 dark:bg-amber-950/10' : 'hover:bg-muted/50'}`}>
+                                    <TableCell>
+                                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-[10px] font-bold">
+                                        {idx + 1}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <Avatar className="w-7 h-7">
+                                          <AvatarImage src={c.photo || ''} />
+                                          <AvatarFallback className="text-[9px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                                            {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                          </AvatarFallback>
+                                        </Avatar>
+                                        <div>
+                                          <p className="text-xs font-semibold">{c.name}</p>
+                                          <p className="text-[10px] text-muted-foreground font-mono">{c.employeeId}</p>
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="text-right text-xs font-medium tabular-nums">{fmtNum(c.totalQty)}</TableCell>
+                                    <TableCell className="text-right text-xs font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{fmtRp(c.totalSettle)}</TableCell>
+                                    <TableCell className="text-right text-xs tabular-nums text-muted-foreground">{fmtNum(c.totalStruk)}</TableCell>
+                                    <TableCell className="text-right text-xs tabular-nums font-medium text-purple-600 dark:text-purple-400">{c.basketSize.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right text-xs tabular-nums font-medium text-cyan-600 dark:text-cyan-400">{fmtRp(c.pricePoint)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+
+                          {/* Mobile Cards */}
+                          <div className="md:hidden space-y-3">
+                            {groupDetailData.crews.map((c, idx) => (
+                              <motion.div key={c.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }}>
+                                <div className={`p-3 rounded-xl border ${idx === 0 ? 'bg-amber-50/50 dark:bg-amber-950/10 border-amber-200/50 dark:border-amber-800/30' : 'bg-white dark:bg-gray-800'}`}>
+                                  {/* Crew header */}
+                                  <div className="flex items-center gap-2.5 mb-2.5">
+                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-[10px] font-bold shrink-0">
+                                      {idx + 1}
+                                    </div>
+                                    <Avatar className="w-8 h-8">
+                                      <AvatarImage src={c.photo || ''} />
+                                      <AvatarFallback className="text-[9px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                                        {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold truncate">{c.name}</p>
+                                      <p className="text-[10px] text-muted-foreground font-mono">{c.employeeId}</p>
+                                    </div>
+                                    <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{fmtRp(c.totalSettle)}</p>
+                                  </div>
+                                  {/* Stats grid */}
+                                  <div className="grid grid-cols-4 gap-2">
+                                    <div className="text-center p-1.5 rounded-lg bg-muted/50">
+                                      <p className="text-[9px] text-muted-foreground">Qty</p>
+                                      <p className="text-xs font-bold tabular-nums">{fmtNum(c.totalQty)}</p>
+                                    </div>
+                                    <div className="text-center p-1.5 rounded-lg bg-muted/50">
+                                      <p className="text-[9px] text-muted-foreground">Struk</p>
+                                      <p className="text-xs font-bold tabular-nums">{fmtNum(c.totalStruk)}</p>
+                                    </div>
+                                    <div className="text-center p-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/30">
+                                      <p className="text-[9px] text-purple-600 dark:text-purple-400">Basket</p>
+                                      <p className="text-xs font-bold tabular-nums text-purple-700 dark:text-purple-300">{c.basketSize.toFixed(2)}</p>
+                                    </div>
+                                    <div className="text-center p-1.5 rounded-lg bg-cyan-50 dark:bg-cyan-950/30">
+                                      <p className="text-[9px] text-cyan-600 dark:text-cyan-400">Price Pt</p>
+                                      <p className="text-xs font-bold tabular-nums text-cyan-700 dark:text-cyan-300">{fmtRp(c.pricePoint)}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -2427,7 +3039,93 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <footer className="mt-auto border-t border-border/50 bg-white/60 dark:bg-gray-950/60 backdrop-blur-xl">
+
+      {/* ─── Edit Sale Dialog (Admin Only) ─── */}
+      <Dialog open={!!editSaleDialog} onOpenChange={() => setEditSaleDialog(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit2 className="w-5 h-5 text-blue-500" />
+              Edit Data Penjualan
+            </DialogTitle>
+            <DialogDescription>Ubah data penjualan atau pindahkan ke crew lain</DialogDescription>
+          </DialogHeader>
+          {editSaleDialog && (
+            <div className="space-y-4">
+              {/* Crew assignment */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Crew (Claim)</Label>
+                <Select value={editSaleForm.crewId} onValueChange={v => setEditSaleForm(f => ({ ...f, crewId: v }))}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pilih crew..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">— Belum di-claim (Unclaim) —</SelectItem>
+                    {crews.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name} ({c.employeeId})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editSaleDialog.crew && editSaleForm.crewId === '' && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Data akan di-unclaim dari {editSaleDialog.crew.name}</p>
+                )}
+              </div>
+              <Separator />
+              {/* Product details */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Tanggal</Label>
+                  <Input type="date" value={editSaleForm.tanggal} onChange={e => setEditSaleForm(f => ({ ...f, tanggal: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Qty</Label>
+                  <Input type="number" min={0} value={editSaleForm.qty} onChange={e => setEditSaleForm(f => ({ ...f, qty: Number(e.target.value) || 0 }))} />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Kode Extend</Label>
+                  <Input value={editSaleForm.kodeExtend} onChange={e => setEditSaleForm(f => ({ ...f, kodeExtend: e.target.value }))} className="font-mono" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Settle (Rp)</Label>
+                  <Input type="number" min={0} step={0.01} value={editSaleForm.settle} onChange={e => setEditSaleForm(f => ({ ...f, settle: Number(e.target.value) || 0 }))} className="font-mono" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Dept</Label>
+                  <Input value={editSaleForm.dept} onChange={e => setEditSaleForm(f => ({ ...f, dept: e.target.value }))} placeholder="Departemen" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Brand</Label>
+                  <Input value={editSaleForm.brand} onChange={e => setEditSaleForm(f => ({ ...f, brand: e.target.value }))} placeholder="Brand" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Modul</Label>
+                  <Input value={editSaleForm.modul} onChange={e => setEditSaleForm(f => ({ ...f, modul: e.target.value }))} placeholder="Modul" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Pembayaran</Label>
+                  <Input value={editSaleForm.pembayaran} onChange={e => setEditSaleForm(f => ({ ...f, pembayaran: e.target.value }))} placeholder="Metode pembayaran" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Program</Label>
+                  <Input value={editSaleForm.program} onChange={e => setEditSaleForm(f => ({ ...f, program: e.target.value }))} placeholder="Program" />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditSaleDialog(null)}>Batal</Button>
+            <Button
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25"
+              disabled={editSaleSaving || !editSaleForm.kodeExtend || !editSaleForm.tanggal}
+              onClick={handleSaveEditSale}
+            >
+              {editSaleSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <footer className="mt-auto border-t border-border/50 bg-white/60 dark:bg-gray-950/60 backdrop-blur-xl pb-20 md:pb-0">
         {/* Top accent line */}
         <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
@@ -2533,6 +3231,45 @@ export default function Home() {
           </motion.button>
         )}
       </AnimatePresence>
+
+      {/* ═══ MOBILE BOTTOM NAVIGATION ═══ */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+        <div className="flex items-center justify-around px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+          {navItems.map(t => {
+            const isActive = activeTab === t.val
+            return (
+              <button
+                key={t.val}
+                onClick={() => { setActiveTab(t.val); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                className={`relative flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-2xl min-w-[64px] transition-all duration-200 ${
+                  isActive
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="bottomnav-active"
+                    className="absolute inset-0 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40"
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
+                  />
+                )}
+                <div className={`relative z-10 flex flex-col items-center gap-0.5`}>
+                  <motion.div
+                    whileTap={{ scale: 0.9 }}
+                    className={`w-6 h-6 flex items-center justify-center rounded-lg transition-all duration-200 ${isActive ? 'bg-emerald-100 dark:bg-emerald-900/60' : ''}`}
+                  >
+                    <t.icon className={`w-[18px] h-[18px] transition-all duration-200 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
+                  </motion.div>
+                  <span className={`text-[10px] font-semibold leading-none transition-all duration-200 ${isActive ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                    {t.val === 'claims' ? 'Claim' : t.val === 'management' ? 'Mgmt' : t.label}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </nav>
 
       </div>
       </div>
