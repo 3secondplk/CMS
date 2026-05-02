@@ -1,22 +1,13 @@
-// ─────────────────────────────────────────────────────────
-// CMS Crew Management System — Prisma Schema
-// Developer: Ahtjong Labs
-// ─────────────────────────────────────────────────────────
-// LOCAL DEV:   provider = "sqlite",    url = "file:../db/custom.db"
-// VERCEL/NEON: provider = "postgresql", url = env("DATABASE_URL")
-//
-// FOR VERCEL DEPLOYMENT:
-//   1. Change provider below to "postgresql"
-//   2. Set DATABASE_URL env var to your Neon connection string
-//   3. Run: npx prisma generate && npx prisma db push
-// ─────────────────────────────────────────────────────────
+// ─── PRODUCTION SCHEMA (PostgreSQL / Neon) ───
+// Copy this file to schema.prisma when deploying to Vercel with Neon DB
+// Then run: npx prisma generate && npx prisma db push
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -81,4 +72,10 @@ model Sale {
   channelStock     String?
   claimedAt        DateTime?
   createdAt        DateTime @default(now())
+  
+  @@index([tanggal])
+  @@index([kodeExtend])
+  @@index([crewId])
+  @@index([program])
+  @@index([tanggal, kodeExtend])
 }

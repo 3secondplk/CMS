@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import * as XLSX from 'xlsx'
 
 // ─────────────────────────────────────────────
@@ -162,9 +163,6 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Log import activity
-    await db.activityLog.create({ data: { action: 'IMPORT_SALE', detail: `Import ${newSalesData.length} data penjualan (${duplicateCount} duplikat)`, adminName: 'Admin' } }).catch(() => {})
-
     // Insert only new (non-duplicate) rows as unclaimed (crewId = null)
     const created = await db.sale.createMany({
       data: newSalesData.map((item) => ({
@@ -244,7 +242,7 @@ export async function GET(request: NextRequest) {
 
     // Search across kodeExtend, brand, dept, and crew name
     if (search) {
-      const searchConditions = [
+      const searchConditions: Prisma.SaleWhereInput[] = [
         { kodeExtend: { contains: search } },
         { brand: { contains: search } },
         { dept: { contains: search } },
@@ -456,9 +454,6 @@ export async function PUT(request: NextRequest) {
     })
     const totalSettle = claimedSales.reduce((sum, s) => sum + s.settle, 0)
 
-    // Log claim activity
-    await db.activityLog.create({ data: { action: 'CLAIM_SALE', detail: `Claim ${claimedCount} data ke ${crew.name} (Rp ${totalSettle.toLocaleString('id-ID')})`, adminName: 'Admin' } }).catch(() => {})
-
     return NextResponse.json({
       success: true,
       message: `Berhasil meng-claim ${claimedCount} data penjualan untuk ${crew.name}`,
@@ -495,9 +490,6 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.sale.delete({ where: { id } })
-
-    // Log delete activity
-    await db.activityLog.create({ data: { action: 'DELETE', detail: `Hapus data penjualan ${sale.kodeExtend}`, adminName: 'Admin' } }).catch(() => {})
 
     return NextResponse.json({ success: true, message: 'Data penjualan berhasil dihapus' })
   } catch (error) {

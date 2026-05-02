@@ -24,8 +24,7 @@ import {
   ChevronLeft, ChevronRight, DollarSign, ShoppingCart, BarChart3,
   Calendar, Award, Flame, CircleDot, Package, Clock, Shield,
   Sun, Moon, AlertTriangle, UploadCloud, X, Download, Filter, Sparkles, Eye, RefreshCw, Percent, ChevronUp, UserCheck,
-  Menu, Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart,
-  ClipboardList, LogIn, UserMinus, FileUp, PenSquare, Trash, FolderPlus, FolderEdit, FolderMinus
+  Menu, Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
@@ -83,10 +82,6 @@ interface ScanResult {
   brand: string; dept: string; modul: string; pembayaran: string; program: string
 }
 
-interface ActivityLog {
-  id: string; action: string; detail: string | null; adminName: string | null; createdAt: string
-}
-
 // ─── Helpers ─────────────────────────────────────────────
 const fmtRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n)
 const fmtNum = (n: number) => new Intl.NumberFormat('id-ID').format(n)
@@ -108,26 +103,6 @@ function getWIBToday() {
 const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
 const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
 const currentYear = new Date().getFullYear()
-
-// ─── Activity Log Helpers (pure functions, no JSX) ──────
-function getActionColor(action: string): string {
-  if (action === 'LOGIN' || action === 'LOGOUT') return 'sky'
-  if (action === 'CLAIM_SALE') return 'emerald'
-  if (action === 'UNCLAIM_SALE') return 'amber'
-  if (action === 'IMPORT_SALE') return 'purple'
-  if (action.includes('DELETE')) return 'red'
-  if (action.includes('CREATE') || action.includes('ADD')) return 'green'
-  if (action.includes('UPDATE') || action.includes('EDIT')) return 'amber'
-  return 'gray'
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const ago = Date.now() - new Date(dateStr).getTime()
-  if (ago < 60000) return 'baru saja'
-  if (ago < 3600000) return `${Math.floor(ago / 60000)} menit lalu`
-  if (ago < 86400000) return `${Math.floor(ago / 3600000)} jam lalu`
-  return new Date(dateStr).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 
 // ─── Smart Pagination Helper ─────────────────────────────
 function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
@@ -166,7 +141,7 @@ function AnimatedCounter({ value, prefix = '', suffix = '' }: { value: number; p
 // ─── Skeleton Loader ────────────────────────────────────
 function SkeletonRow({ cols = 5 }: { cols?: number }) {
   return (
-    <tr className="animate-pulse animate-skeleton-shimmer">
+    <tr className="animate-pulse">
       {Array.from({ length: cols }).map((_, i) => (
         <td key={i} className="px-4 py-3">
           <div className="h-3 bg-muted rounded-full w-full" style={{ maxWidth: i === 0 ? '80px' : '120px' }} />
@@ -178,7 +153,7 @@ function SkeletonRow({ cols = 5 }: { cols?: number }) {
 
 function SkeletonCard() {
   return (
-    <div className="p-3 rounded-lg border bg-white dark:bg-gray-900 animate-pulse animate-skeleton-shimmer">
+    <div className="p-3 rounded-lg border bg-white dark:bg-gray-900 animate-pulse">
       <div className="h-3 bg-muted rounded-full w-3/4 mb-2" />
       <div className="grid grid-cols-2 gap-2">
         <div className="h-2.5 bg-muted rounded-full w-12" />
@@ -293,14 +268,6 @@ export default function Home() {
   const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set())
   const [batchDeleting, setBatchDeleting] = useState(false)
 
-  // Activity Log state
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
-  const [activityTotal, setActivityTotal] = useState(0)
-  const [activityTotalPages, setActivityTotalPages] = useState(1)
-  const [activityPage, setActivityPage] = useState(1)
-  const [activityFilter, setActivityFilter] = useState('')
-  const [activityLoading, setActivityLoading] = useState(false)
-
   // Check auth on mount
   useEffect(() => {
     fetch('/api/auth').then(r => r.json()).then(d => {
@@ -375,32 +342,12 @@ export default function Home() {
 
   useEffect(() => { if (isAdmin) fetchManagement() }, [isAdmin, fetchManagement])
 
-  // Fetch activity logs
-  const fetchActivityLogs = useCallback(async (page: number) => {
-    if (!isAdmin) return
-    setActivityLoading(true)
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' })
-      if (activityFilter) params.set('action', activityFilter)
-      const r = await fetch(`/api/activity-logs?${params}`)
-      const d = await r.json()
-      setActivityLogs(d.logs || [])
-      setActivityTotal(d.total || 0)
-      setActivityTotalPages(d.totalPages || 1)
-      setActivityPage(d.page || 1)
-    } catch { /* silent */ }
-    finally { setActivityLoading(false) }
-  }, [isAdmin, activityFilter])
-
-  useEffect(() => { if (isAdmin) fetchActivityLogs(1) }, [isAdmin, fetchActivityLogs])
-
   // Auto-refresh on tab switch
   useEffect(() => {
     if (activeTab === 'dashboard') fetchDashboard()
     else if (activeTab === 'claims') fetchClaims(1)
     else if (activeTab === 'management' && isAdmin) fetchManagement()
-    else if (activeTab === 'activity' && isAdmin) fetchActivityLogs(1)
-  }, [activeTab, fetchDashboard, fetchClaims, fetchManagement, fetchActivityLogs, isAdmin])
+  }, [activeTab, fetchDashboard, fetchClaims, fetchManagement, isAdmin])
 
   // Scroll listener for back-to-top button
   useEffect(() => {
@@ -699,74 +646,15 @@ export default function Home() {
   }
 
   // ─── Render Helpers ───────────────────────────────────
-  const [dateStr, setDateStr] = useState('')
-  useEffect(() => {
-    const d = getWIBDate()
-    setDateStr(`${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`)
-  }, [])
-
-  // ─── Action Icon Component ────────────────────────────
-  function ActionIcon({ action, size = 'md' }: { action: string; size?: 'sm' | 'md' }) {
-    const color = getActionColor(action)
-    const sizeClass = size === 'sm' ? 'w-7 h-7' : 'w-9 h-9'
-    const iconClass = size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4'
-    const bgMap: Record<string, string> = {
-      sky: 'bg-sky-100 dark:bg-sky-950/50',
-      emerald: 'bg-emerald-100 dark:bg-emerald-950/50',
-      amber: 'bg-amber-100 dark:bg-amber-950/50',
-      purple: 'bg-purple-100 dark:bg-purple-950/50',
-      red: 'bg-red-100 dark:bg-red-950/50',
-      green: 'bg-green-100 dark:bg-green-950/50',
-      gray: 'bg-muted',
-    }
-    const textMap: Record<string, string> = {
-      sky: 'text-sky-600 dark:text-sky-400',
-      emerald: 'text-emerald-600 dark:text-emerald-400',
-      amber: 'text-amber-600 dark:text-amber-400',
-      purple: 'text-purple-600 dark:text-purple-400',
-      red: 'text-red-600 dark:text-red-400',
-      green: 'text-green-600 dark:text-green-400',
-      gray: 'text-muted-foreground',
-    }
-    let icon = <ClipboardList className={iconClass} />
-    if (action === 'LOGIN') icon = <LogIn className={iconClass} />
-    else if (action === 'LOGOUT') icon = <UserMinus className={iconClass} />
-    else if (action === 'CLAIM_SALE') icon = <UserCheck className={iconClass} />
-    else if (action === 'UNCLAIM_SALE') icon = <UserMinus className={iconClass} />
-    else if (action === 'IMPORT_SALE') icon = <FileUp className={iconClass} />
-    else if (action.includes('DELETE')) icon = <Trash className={iconClass} />
-    else if (action.includes('CREATE') || action.includes('ADD')) icon = <FolderPlus className={iconClass} />
-    else if (action.includes('UPDATE') || action.includes('EDIT')) icon = <FolderEdit className={iconClass} />
-    return (
-      <div className={`${sizeClass} rounded-lg flex items-center justify-center shrink-0 ${bgMap[color] || bgMap.gray}`}>
-        <span className={textMap[color] || textMap.gray}>{icon}</span>
-      </div>
-    )
-  }
+  const wibDate = getWIBDate()
+  const dateStr = `${dayNames[wibDate.getDay()]}, ${wibDate.getDate()} ${monthNames[wibDate.getMonth()]} ${wibDate.getFullYear()}`
 
   // ─── RENDER ────────────────────────────────────────────
   const navItems = [
     { val: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', desc: 'Ringkasan & statistik' },
     { val: 'claims', icon: Upload, label: 'Claim Penjualan', desc: 'Upload & klaim data' },
     { val: 'management', icon: Settings, label: 'Management', desc: 'Kelola crew & grup' },
-    { val: 'activity', icon: ClipboardList, label: 'Activity Log', desc: 'Riwayat aktivitas' },
   ]
-
-  // Prevent hydration mismatch — show nothing until client mounts
-  if (!mounted) {
-    return (
-      <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-50 via-emerald-50/20 to-teal-50/10 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-lg shadow-emerald-500/20 animate-gentle-float">
-              <Layers className="w-6 h-6 text-white" />
-            </div>
-            <p className="text-sm text-muted-foreground animate-pulse">Memuat CMS Crew...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-50 via-emerald-50/20 to-teal-50/10 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 relative">
@@ -805,7 +693,7 @@ export default function Home() {
                     <button
                       key={t.val}
                       onClick={() => setActiveTab(t.val)}
-                      className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 transition-all-smooth ${
+                      className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                         activeTab === t.val
                           ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 shadow-sm'
                           : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -939,7 +827,7 @@ export default function Home() {
             {/* ─── Dashboard Tab ────────────────────────── */}
             <TabsContent value="dashboard" className="mt-4 sm:mt-6 pb-8">
               {dashLoading ? (
-                <div className="space-y-6 animate-pulse animate-skeleton-shimmer">
+                <div className="space-y-6 animate-pulse">
                   {/* Skeleton Summary Cards */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                     {Array.from({ length: 4 }).map((_, i) => (
@@ -986,7 +874,7 @@ export default function Home() {
                       { label: 'Total Transaksi', value: dashboard.crewStats.reduce((s, c) => s + c.transactionCount, 0), qty: 0, icon: ShoppingCart, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', trend: null },
                     ].map((card, i) => (
                       <motion.div key={i} {...fadeIn} transition={{ delay: i * 0.1 }} whileHover={{ y: -3, transition: { type: 'spring', stiffness: 300 } }}>
-                        <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 group cursor-default card-hover-glow card-depth interactive-glow">
+                        <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 group cursor-default card-hover-glow">
                           <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-300`} />
                           <CardContent className="p-4 sm:p-6 relative">
                             <div className="flex items-start justify-between">
@@ -1023,7 +911,7 @@ export default function Home() {
 
                   {/* Top Crew Leaderboard */}
                   <motion.div {...fadeIn} transition={{ delay: 0.3 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden card-depth">
+                    <Card className="border-0 shadow-lg overflow-hidden">
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
@@ -1081,7 +969,7 @@ export default function Home() {
                               ]
                               return (
                                 <motion.div key={crew.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: rank * 0.15, type: 'spring', stiffness: 200 }}
-                                  className="flex flex-col items-center gradient-border p-2 rounded-xl">
+                                  className="flex flex-col items-center">
                                   <Avatar className={`w-12 h-12 sm:w-16 sm:h-16 border-2 border-white dark:border-gray-700 shadow-md ${isFirst ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}>
                                     <AvatarImage src={crew.photo || ''} />
                                     <AvatarFallback className="bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold text-sm">
@@ -1131,7 +1019,7 @@ export default function Home() {
                             </div>
                             {/* Desktop Table View */}
                             <div className="hidden md:block max-h-64 overflow-y-auto">
-                              <Table className="table-stripe table-sticky-head table-enhanced">
+                              <Table className="table-stripe table-sticky-head">
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent">
                                     <TableHead className="w-10">#</TableHead>
@@ -1156,7 +1044,7 @@ export default function Home() {
                                                 {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                                               </AvatarFallback>
                                             </Avatar>
-                                            <p className="font-medium text-sm cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors clickable-hover" onClick={() => setSelectedCrewDetail(crew)}>{crew.name}</p>
+                                            <p className="font-medium text-sm cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" onClick={() => setSelectedCrewDetail(crew)}>{crew.name}</p>
                                           </div>
                                         </TableCell>
                                         <TableCell>
@@ -1178,7 +1066,7 @@ export default function Home() {
 
                   {/* Group Achievement Cards */}
                   <motion.div {...fadeIn} transition={{ delay: 0.4 }}>
-                    <Card className="border-0 shadow-lg card-depth">
+                    <Card className="border-0 shadow-lg">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
                           <Target className="w-5 h-5 text-emerald-500" />
@@ -1250,7 +1138,7 @@ export default function Home() {
 
                   {/* Sales Chart */}
                   <motion.div {...fadeIn} transition={{ delay: 0.5 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden card-depth">
+                    <Card className="border-0 shadow-lg overflow-hidden">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
                           <BarChart3 className="w-5 h-5 text-emerald-500" />
@@ -1287,7 +1175,7 @@ export default function Home() {
 
                   {/* Sales Trend Line Chart */}
                   <motion.div {...fadeIn} transition={{ delay: 0.55 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden card-depth">
+                    <Card className="border-0 shadow-lg overflow-hidden">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
                           <TrendingUp className="w-5 h-5 text-emerald-500" />
@@ -1321,129 +1209,9 @@ export default function Home() {
                     </Card>
                   </motion.div>
 
-                  {/* Group Performance Comparison */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.58 }}>
-                    <Card className="border-0 shadow-lg card-depth">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <BarChart3 className="w-5 h-5 text-emerald-500" />
-                            <CardTitle className="text-base">Perbandingan Performa Group</CardTitle>
-                          </div>
-                          <div className="hidden sm:flex items-center gap-3 text-[10px] text-muted-foreground">
-                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> ≥75%</span>
-                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> ≥50%</span>
-                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-500 inline-block" /> ≥25%</span>
-                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> &lt;25%</span>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        {dashboard.groupAchievements.length === 0 ? (
-                          <p className="text-center py-8 text-muted-foreground text-sm">Belum ada data group</p>
-                        ) : (
-                          <div className="space-y-3">
-                            {dashboard.groupAchievements
-                              .sort((a, b) => b.monthlyAchievement - a.monthlyAchievement)
-                              .map((g, i) => {
-                                const pct = Math.round(g.monthlyAchievement)
-                                const clampedPct = Math.min(pct, 100)
-                                const barColor = pct >= 75
-                                  ? 'bg-emerald-500 dark:bg-emerald-400'
-                                  : pct >= 50
-                                    ? 'bg-amber-500 dark:bg-amber-400'
-                                    : pct >= 25
-                                      ? 'bg-cyan-500 dark:bg-cyan-400'
-                                      : 'bg-red-500 dark:bg-red-400'
-                                const textColor = pct >= 75
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : pct >= 50
-                                    ? 'text-amber-600 dark:text-amber-400'
-                                    : pct >= 25
-                                      ? 'text-cyan-600 dark:text-cyan-400'
-                                      : 'text-red-600 dark:text-red-400'
-                                return (
-                                  <motion.div
-                                    key={g.id}
-                                    initial={{ opacity: 0, x: -12 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: 0.58 + i * 0.08, duration: 0.4 }}
-                                    className="group/row"
-                                  >
-                                    {/* Mobile Card Layout */}
-                                    <div className="sm:hidden p-3 rounded-xl border bg-muted/30 hover:bg-muted/50 transition-colors">
-                                      <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          <Avatar className="w-7 h-7 border border-emerald-200 dark:border-emerald-800">
-                                            <AvatarImage src={g.logo || ''} />
-                                            <AvatarFallback className="text-[10px] font-bold bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
-                                              {g.name.split(' ').slice(-1)[0][0]}
-                                            </AvatarFallback>
-                                          </Avatar>
-                                          <span className="text-sm font-semibold truncate">{g.name}</span>
-                                        </div>
-                                        <span className={`text-sm font-bold ${textColor}`}>{pct}%</span>
-                                      </div>
-                                      <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden mb-2">
-                                        <motion.div
-                                          className={`h-full rounded-full ${barColor}`}
-                                          initial={{ width: 0 }}
-                                          animate={{ width: `${clampedPct}%` }}
-                                          transition={{ delay: 0.6 + i * 0.08, duration: 0.8, ease: 'easeOut' }}
-                                        />
-                                      </div>
-                                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                                        <span className="flex items-center gap-1">
-                                          <Users className="w-3 h-3" />{g.crewCount} crew
-                                        </span>
-                                        <span>{fmtRp(g.monthlyTotal)} / {fmtRp(g.monthlyTarget)}</span>
-                                      </div>
-                                    </div>
-
-                                    {/* Desktop Table Layout */}
-                                    <div className="hidden sm:flex items-center gap-4 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors group-hover/row:bg-muted/30">
-                                      <div className="flex items-center gap-2.5 w-36 shrink-0">
-                                        <span className="text-xs text-muted-foreground font-medium w-5 text-right">{i + 1}</span>
-                                        <Avatar className="w-7 h-7 border border-emerald-200 dark:border-emerald-800">
-                                          <AvatarImage src={g.logo || ''} />
-                                          <AvatarFallback className="text-[10px] font-bold bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
-                                            {g.name.split(' ').slice(-1)[0][0]}
-                                          </AvatarFallback>
-                                        </Avatar>
-                                        <span className="text-sm font-semibold truncate">{g.name}</span>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <div className="w-full h-3 rounded-full bg-muted overflow-hidden">
-                                          <motion.div
-                                            className={`h-full rounded-full ${barColor}`}
-                                            initial={{ width: 0 }}
-                                            animate={{ width: `${clampedPct}%` }}
-                                            transition={{ delay: 0.6 + i * 0.08, duration: 0.8, ease: 'easeOut' }}
-                                          />
-                                        </div>
-                                      </div>
-                                      <span className={`text-sm font-bold tabular-nums w-12 text-right shrink-0 ${textColor}`}>{pct}%</span>
-                                      <Badge variant="outline" className="text-[10px] shrink-0">
-                                        <Users className="w-3 h-3 mr-1" />{g.crewCount}
-                                      </Badge>
-                                      <div className="text-xs text-muted-foreground shrink-0 text-right w-40 hidden lg:block">
-                                        <span className="font-medium text-foreground/80">{fmtRp(g.monthlyTotal)}</span>
-                                        <span className="mx-1 text-muted-foreground/40">/</span>
-                                        <span>{fmtRp(g.monthlyTarget)}</span>
-                                      </div>
-                                    </div>
-                                  </motion.div>
-                                )
-                              })}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-
                   {/* Recent Activity */}
                   <motion.div {...fadeIn} transition={{ delay: 0.6 }}>
-                    <Card className="border-0 shadow-lg card-depth">
+                    <Card className="border-0 shadow-lg">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
                           <Clock className="w-5 h-5 text-emerald-500" />
@@ -1496,7 +1264,7 @@ export default function Home() {
                 {/* Upload Modal Dialog */}
                 <Dialog open={showUploadModal} onOpenChange={open => { setShowUploadModal(open); if (!open) { setUploadResult(null); setIsDragOver(false) } }}>
                   <DialogContent className="sm:max-w-lg">
-                    <DialogHeader className="dialog-gradient-header">
+                    <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
                           <FileSpreadsheet className="w-4 h-4 text-white" />
@@ -1638,7 +1406,7 @@ export default function Home() {
                       <Card className="border-2 border-emerald-300 dark:border-emerald-700 shadow-lg shadow-emerald-500/10 overflow-hidden">
                         <CardContent className="p-3 sm:p-4">
                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 shrink-0 badge-success">
+                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 shrink-0">
                               <CheckCircle2 className="w-3 h-3 mr-1" />{selectedSaleIds.size} item terpilih
                             </Badge>
                             <div className="relative flex-1 w-full sm:max-w-xs">
@@ -1647,7 +1415,7 @@ export default function Home() {
                                 placeholder="Cari nama crew..."
                                 value={claimCrewSearch}
                                 onChange={e => setClaimCrewSearch(e.target.value)}
-                                className="pl-9 h-9 w-full input-glow"
+                                className="pl-9 h-9 w-full"
                               />
                               {claimCrewResults.length > 0 && (
                                 <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-white dark:bg-gray-900 shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -1695,7 +1463,7 @@ export default function Home() {
                             </div>
                             {/* Real-time claim lock indicator */}
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse status-dot status-online" />
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                               <span>Anti double-claim aktif — hanya 1 device yang bisa claim per data</span>
                             </div>
                           </div>
@@ -1707,7 +1475,7 @@ export default function Home() {
 
                 {/* Section 4: Laporan Penjualan Table */}
                 <motion.div {...fadeIn} transition={{ delay: 0.15 }}>
-                  <Card className="border-0 shadow-lg card-hover-glow card-depth">
+                  <Card className="border-0 shadow-lg card-hover-glow">
                     <CardHeader className="pb-3">
                       <div className="flex flex-col gap-3">
                         {/* Header row */}
@@ -1761,7 +1529,7 @@ export default function Home() {
                           <div className="relative flex-1 sm:w-72">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input placeholder="Cari kode, brand, dept, crew..." value={claimSearch} onChange={e => { setClaimSearch(e.target.value) }}
-                              className="pl-9 h-9 w-full input-glow" />
+                              className="pl-9 h-9 w-full" />
                           </div>
                           <Select value={claimFilterProgram || '__all__'} onValueChange={v => { setClaimFilterProgram(v === '__all__' ? '' : v) }}>
                             <SelectTrigger className="h-9 w-full sm:w-40 text-xs">
@@ -1811,7 +1579,7 @@ export default function Home() {
                     </CardHeader>
                     <CardContent>
                       {claimsLoading ? (
-                        <div className="space-y-3 animate-pulse animate-skeleton-shimmer">
+                        <div className="space-y-3 animate-pulse">
                           <div className="md:hidden space-y-2">
                             {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
                           </div>
@@ -1898,7 +1666,7 @@ export default function Home() {
                                         )}
                                       </div>
                                     ) : (
-                                      <span className="text-amber-500 dark:text-amber-400 italic badge-warning">Belum di-claim</span>
+                                      <span className="text-amber-500 dark:text-amber-400 italic">Belum di-claim</span>
                                     )}
                                   </div>
                                 </div>
@@ -1908,7 +1676,7 @@ export default function Home() {
 
                           {/* Desktop Table View */}
                           <div className="hidden md:block overflow-x-auto rounded-lg border">
-                            <Table className="table-stripe table-sticky-head table-enhanced">
+                            <Table className="table-stripe table-sticky-head">
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent">
                                   {/* Select column (for unclaimed rows) */}
@@ -2030,7 +1798,7 @@ export default function Home() {
                                       ) : (
                                         <div className="flex items-center gap-1.5 text-amber-500 dark:text-amber-400">
                                           <Search className="w-3.5 h-3.5 shrink-0" />
-                                          <span className="text-xs italic badge-warning">Belum di-claim</span>
+                                          <span className="text-xs italic">Belum di-claim</span>
                                         </div>
                                       )}
                                     </TableCell>
@@ -2151,7 +1919,7 @@ export default function Home() {
                         placeholder="Cari crew, ID, atau group..."
                         value={mgmtSearch}
                         onChange={e => setMgmtSearch(e.target.value)}
-                        className="pl-9 h-9 w-full input-glow"
+                        className="pl-9 h-9 w-full"
                       />
                       {mgmtSearch && (
                         <button
@@ -2180,7 +1948,7 @@ export default function Home() {
                         </div>
 
                         {/* Crew Table */}
-                        <Card className="border-0 shadow-lg overflow-hidden card-depth">
+                        <Card className="border-0 shadow-lg overflow-hidden">
                           {/* Mobile Card View */}
                           <div className="md:hidden p-3 space-y-2">
                             {filteredMgmtCrews.map(crew => (
@@ -2217,7 +1985,7 @@ export default function Home() {
                           </div>
                           {/* Desktop Table View */}
                           <div className="hidden md:block overflow-x-auto">
-                            <Table className="table-stripe table-sticky-head table-enhanced">
+                            <Table className="table-stripe table-sticky-head">
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent">
                                   <TableHead>Crew</TableHead>
@@ -2267,7 +2035,7 @@ export default function Home() {
                         {/* Crew Performance Chart */}
                         {mgmtCrews.length > 0 && (
                           <motion.div {...fadeIn} transition={{ delay: 0.2 }}>
-                            <Card className="border-0 shadow-lg overflow-hidden card-depth">
+                            <Card className="border-0 shadow-lg overflow-hidden">
                               <CardHeader className="pb-2">
                                 <div className="flex items-center gap-2">
                                   <BarChart3 className="w-5 h-5 text-emerald-500" />
@@ -2377,166 +2145,6 @@ export default function Home() {
                 </motion.div>
               )}
             </TabsContent>
-
-            {/* ─── Activity Log Tab ─────────────────────── */}
-            <TabsContent value="activity" className="mt-4 sm:mt-6 pb-8">
-              {!isAdmin ? (
-                <div className="text-center py-16">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
-                    <ClipboardList className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-base font-bold mb-1">Akses Terbatas</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Login sebagai admin untuk melihat riwayat aktivitas</p>
-                  <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400" onClick={() => setActiveTab('dashboard')}>
-                    <ArrowUpRight className="w-3.5 h-3.5 mr-1.5" />Ke Dashboard
-                  </Button>
-                </div>
-              ) : (
-                <motion.div {...stagger} className="space-y-6">
-                  {/* Header & Filters */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.1 }}>
-                    <Card className="border-0 shadow-lg card-hover-glow card-depth">
-                      <CardHeader className="pb-3">
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                              <ClipboardList className="w-5 h-5 text-emerald-500" />
-                              <CardTitle className="text-base">Activity Log</CardTitle>
-                              <Badge variant="outline" className="text-xs">{fmtNum(activityTotal)} aktivitas</Badge>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => fetchActivityLogs(1)} title="Refresh">
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                          {/* Action filter pills */}
-                          <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/60 overflow-x-auto scrollbar-none">
-                            {[
-                              { val: '', label: 'Semua' },
-                              { val: 'LOGIN', label: 'Login' },
-                              { val: 'CLAIM_SALE', label: 'Claim' },
-                              { val: 'UNCLAIM_SALE', label: 'Unclaim' },
-                              { val: 'IMPORT_SALE', label: 'Import' },
-                              { val: 'DELETE', label: 'Hapus' },
-                              { val: 'CREATE', label: 'Tambah' },
-                              { val: 'UPDATE', label: 'Edit' },
-                            ].map(tab => (
-                              <button
-                                key={tab.val}
-                                onClick={() => { setActivityFilter(tab.val); setActivityPage(1) }}
-                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                                  activityFilter === tab.val
-                                    ? 'bg-white dark:bg-gray-900 shadow-sm text-foreground'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                }`}
-                              >
-                                {tab.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        {activityLoading ? (
-                          <div className="space-y-3 animate-pulse animate-skeleton-shimmer">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                              <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
-                                <div className="w-9 h-9 rounded-lg bg-muted" />
-                                <div className="flex-1 space-y-2">
-                                  <div className="h-3 bg-muted rounded-full w-2/3" />
-                                  <div className="h-2.5 bg-muted rounded-full w-1/3" />
-                                </div>
-                                <div className="h-3 bg-muted rounded-full w-16" />
-                              </div>
-                            ))}
-                          </div>
-                        ) : activityLogs.length === 0 ? (
-                          <div className="text-center py-12">
-                            <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                              className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-amber-100 dark:from-emerald-950/40 dark:to-amber-950/40 flex items-center justify-center">
-                              <ClipboardList className="w-10 h-10 text-emerald-400 dark:text-emerald-600" />
-                            </motion.div>
-                            <h3 className="text-base font-bold mb-1">Belum Ada Aktivitas</h3>
-                            <p className="text-sm text-muted-foreground">Aktivitas admin akan tampil di sini secara otomatis</p>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Mobile Card View */}
-                            <div className="md:hidden space-y-2">
-                              {activityLogs.map((log, i) => (
-                                <motion.div key={log.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
-                                  className="p-3 rounded-lg border bg-white dark:bg-gray-900">
-                                  <div className="flex items-start gap-3">
-                                    <ActionIcon action={log.action} />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{log.action.replace(/_/g, ' ')}</p>
-                                      {log.detail && <p className="text-xs text-muted-foreground mt-0.5 truncate">{log.detail}</p>}
-                                      <div className="flex items-center gap-2 mt-1">
-                                        {log.adminName && <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">{log.adminName}</span>}
-                                        <span className="text-[10px] text-muted-foreground">{formatTimeAgo(log.createdAt)}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </motion.div>
-                              ))}
-                            </div>
-                            {/* Desktop Table View */}
-                            <div className="hidden md:block overflow-x-auto rounded-lg border">
-                              <Table className="table-stripe table-sticky-head table-enhanced">
-                                <TableHeader>
-                                  <TableRow className="hover:bg-transparent">
-                                    <TableHead className="w-[80px]">Aksi</TableHead>
-                                    <TableHead>Detail</TableHead>
-                                    <TableHead className="w-[140px]">Admin</TableHead>
-                                    <TableHead className="w-[120px]">Waktu</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {activityLogs.map((log) => (
-                                    <TableRow key={log.id} className="hover:bg-muted/30 transition-colors">
-                                      <TableCell>
-                                        <ActionIcon action={log.action} size="sm" />
-                                      </TableCell>
-                                      <TableCell>
-                                        <div>
-                                          <p className="text-xs font-medium">{log.action.replace(/_/g, ' ')}</p>
-                                          {log.detail && <p className="text-[11px] text-muted-foreground truncate max-w-[300px]">{log.detail}</p>}
-                                        </div>
-                                      </TableCell>
-                                      <TableCell className="text-xs">{log.adminName || '-'}</TableCell>
-                                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatTimeAgo(log.createdAt)}</TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                            {/* Pagination */}
-                            {activityTotalPages > 1 && (
-                              <div className="flex items-center justify-between mt-4">
-                                <p className="text-xs text-muted-foreground">Halaman {activityPage} dari {activityTotalPages}</p>
-                                <div className="flex items-center gap-1">
-                                  <button className="pagination-btn border" disabled={activityPage <= 1} onClick={() => fetchActivityLogs(activityPage - 1)}>
-                                    <ChevronLeft className="w-3.5 h-3.5" />
-                                  </button>
-                                  {getPageNumbers(activityPage, activityTotalPages).map((p, i) =>
-                                    p === '...' ? <span key={`e${i}`} className="w-8 h-8 flex items-center justify-center text-xs text-muted-foreground">...</span> : (
-                                      <button key={p} className={`pagination-btn border ${activityPage === p ? 'active' : ''}`} onClick={() => fetchActivityLogs(p as number)}>{p}</button>
-                                    )
-                                  )}
-                                  <button className="pagination-btn border" disabled={activityPage >= activityTotalPages} onClick={() => fetchActivityLogs(activityPage + 1)}>
-                                    <ChevronRight className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                </motion.div>
-              )}
-            </TabsContent>
-
           </Tabs>
         </div>
       </div>
@@ -2607,7 +2215,7 @@ export default function Home() {
       {/* ─── Delete Confirmation Dialog ──────────────── */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader className="dialog-gradient-header">
+          <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
               <AlertTriangle className="w-5 h-5" /> Konfirmasi Hapus
             </DialogTitle>
@@ -2639,9 +2247,9 @@ export default function Home() {
               disabled={batchDeleting}
               onClick={async () => {
                 if (!deleteConfirm) return
-                if (deleteConfirm.type === 'crew') await handleDeleteCrew(deleteConfirm.id)
-                else if (deleteConfirm.type === 'group') await handleDeleteGroup(deleteConfirm.id)
-                else if (deleteConfirm.type === 'sale') await handleDeleteSale(deleteConfirm.id)
+                if (deleteConfirm.type === 'crew' && deleteConfirm.id) await handleDeleteCrew(deleteConfirm.id)
+                else if (deleteConfirm.type === 'group' && deleteConfirm.id) await handleDeleteGroup(deleteConfirm.id)
+                else if (deleteConfirm.type === 'sale' && deleteConfirm.id) await handleDeleteSale(deleteConfirm.id)
                 else if (deleteConfirm.type === 'batch-sale') await handleBatchDeleteSales(deleteConfirm.ids || [])
                 setDeleteConfirm(null)
               }}
@@ -2778,7 +2386,7 @@ function CrewForm({ crew, groups, onSave, onCancel }: {
 
   return (
     <>
-      <DialogHeader className="dialog-gradient-header">
+      <DialogHeader>
         <DialogTitle>{crew ? 'Edit Crew' : 'Tambah Crew Baru'}</DialogTitle>
         <DialogDescription>Isi data crew yang akan ditambahkan</DialogDescription>
       </DialogHeader>
@@ -2822,7 +2430,7 @@ function GroupForm({ group, onSave, onCancel }: {
 
   return (
     <>
-      <DialogHeader className="dialog-gradient-header">
+      <DialogHeader>
         <DialogTitle>{group ? 'Edit Group' : 'Tambah Group Baru'}</DialogTitle>
         <DialogDescription>Atur target penjualan mingguan dan bulanan</DialogDescription>
       </DialogHeader>
