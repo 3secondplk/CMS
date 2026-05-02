@@ -1,0 +1,501 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
+import * as XLSX from 'xlsx'
+
+// ─────────────────────────────────────────────
+// POST /api/claims — Upload Excel & Import as unclaimed sales
+// ─────────────────────────────────────────────
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData()
+    const file = formData.get('file') as File | null
+
+    if (!file) {
+      return NextResponse.json({ error: 'File harus diisi' }, { status: 400 })
+    }
+
+    // File type validation (no size limit — import as many rows as needed)
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ]
+    if (!validTypes.includes(file.type) && !file.name.match(/\.xlsx?$/i)) {
+      return NextResponse.json(
+        { error: 'Format file tidak didukung. Gunakan file Excel (.xlsx atau .xls)' },
+        { status: 400 },
+      )
+    }
+
+    // Parse Excel — row 1 is title "Laporan Penjualan", row 2 is headers
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    const sheetName = workbook.SheetNames[0]
+    const worksheet = workbook.Sheets[sheetName]
+    const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' })
+
+    if (jsonData.length === 0) {
+      return NextResponse.json({ error: 'File kosong atau tidak dapat dibaca' }, { status: 400 })
+    }
+
+    // Validate required columns from header row (first data row = actual headers)
+    const headerRow = jsonData[0]
+    const requiredColumns = ['Tanggal', 'Kode Extend', 'Settle', 'Qty']
+    const missingColumns = requiredColumns.filter((col) => !(col in headerRow))
+    // Also check optional columns that we'll store if present
+    const optionalColumns = ['ID Penjualan', 'Status Retention', 'Retention Code', 'Pembayaran', 'Program', 'Channel Stock', 'Brand', 'Dept', 'Modul', 'Ukuran', 'HJP', 'Netto', 'Diskon', 'Diskon Rp', 'Potongan', 'Potongan V']
+    if (missingColumns.length > 0) {
+      return NextResponse.json(
+        { error: `Format file tidak valid. Pastikan file memiliki kolom: Tanggal, Kode Extend, Settle, Qty` },
+        { status: 400 },
+      )
+    }
+
+    // Data rows start after header row
+    const dataRows = jsonData.slice(1)
+
+    const uniqueProducts = new Set<string>()
+    let totalQty = 0
+    let totalSettle = 0
+
+    // Build insert payloads — all 20 Excel columns
+    const salesData: {
+      tanggal: string; idPenjualan: string; statusRetention: string; retentionCode: string
+      kodeExtend: string; brand: string; dept: string; modul: string; ukuran: string
+      qty: number; hjp: number; netto: number; diskon: number; diskonRp: number
+      potongan: number; potonganV: number; settle: number
+      pembayaran: string; program: string; channelStock: string
+    }[] = []
+
+    // Track unique keys for in-file dedup (tanggal + kodeExtend = unique row)
+    const inFileKeys = new Set<string>()
+
+    for (const row of dataRows) {
+      const tanggal = String(row['Tanggal'] || '')
+      const idPenjualan = String(row['ID Penjualan'] || '')
+      const statusRetention = String(row['Status Retention'] || '')
+      const retentionCode = String(row['Retention Code'] || '')
+      const kodeExtend = String(row['Kode Extend'] || '')
+      const brand = String(row['Brand'] || '')
+      const dept = String(row['Dept'] || '')
+      const modul = String(row['Modul'] || '')
+      const ukuran = String(row['Ukuran'] || '')
+      const qty = Number(row['Qty']) || 0
+      const hjp = Number(row['HJP']) || Number(row['Hjp']) || Number(row['hjp']) || 0
+      const netto = Number(row['Netto']) || 0
+      const diskon = Number(row['Diskon']) || 0
+      const diskonRp = Number(row['Diskon Rp']) || 0
+      const potongan = Number(row['Potongan,']) || Number(row['Potongan']) || 0
+      const potonganV = Number(row['Potongan V']) || 0
+      const settle = Number(row['Settle']) || 0
+      const pembayaran = String(row['Pembayaran'] || '')
+      const program = String(row['Program'] || '')
+      const channelStock = String(row['Channel Stock'] || '')
+
+      // Skip completely empty rows
+      if (!tanggal && !kodeExtend) continue
+
+      // Skip rows where Settle is 0 or empty
+      if (!settle || settle <= 0) continue
+
+      // ── In-file dedup: skip if same tanggal + kodeExtend already seen in this file ──
+      const dedupKey = `${tanggal}|||${kodeExtend}`
+      if (inFileKeys.has(dedupKey)) continue
+      inFileKeys.add(dedupKey)
+
+      salesData.push({ tanggal, idPenjualan, statusRetention, retentionCode, kodeExtend, brand, dept, modul, ukuran, qty, hjp, netto, diskon, diskonRp, potongan, potonganV, settle, pembayaran, program, channelStock })
+      if (kodeExtend) uniqueProducts.add(kodeExtend)
+      totalQty += qty
+      totalSettle += settle
+    }
+
+    if (salesData.length === 0) {
+      return NextResponse.json(
+        { error: 'Tidak ada data penjualan valid dalam file (Settle harus > 0)' },
+        { status: 400 },
+      )
+    }
+
+    // ── Cross-DB deduplication: check against existing database records ──
+    // A row is considered duplicate if tanggal + kodeExtend already exists in DB
+    const uniqueTanggals = [...new Set(salesData.map(item => item.tanggal))]
+    const uniqueKodeExtends = [...new Set(salesData.map(item => item.kodeExtend))]
+
+    // Batch query: find existing records that match any combination
+    const existingRecords = await db.sale.findMany({
+      where: {
+        tanggal: { in: uniqueTanggals },
+        kodeExtend: { in: uniqueKodeExtends },
+      },
+      select: { tanggal: true, kodeExtend: true },
+    })
+
+    // Build Set of existing composite keys for O(1) lookup
+    const existingKeys = new Set(existingRecords.map(r => `${r.tanggal}|||${r.kodeExtend}`))
+
+    // Filter out rows that already exist in database
+    const newSalesData = salesData.filter(item => !existingKeys.has(`${item.tanggal}|||${item.kodeExtend}`))
+    const duplicateCount = salesData.length - newSalesData.length
+
+    // Recalculate stats for only the new (non-duplicate) rows
+    let newTotalQty = 0
+    let newTotalSettle = 0
+    const newProducts = new Set<string>()
+    for (const item of newSalesData) {
+      newTotalQty += item.qty
+      newTotalSettle += item.settle
+      if (item.kodeExtend) newProducts.add(item.kodeExtend)
+    }
+
+    // If all rows are duplicates, return early with info
+    if (newSalesData.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: `Semua ${duplicateCount} data sudah ada di database — tidak ada data baru yang diimpor`,
+        summary: {
+          totalRows: 0,
+          duplicateRows: duplicateCount,
+          totalQty: 0,
+          totalSettle: 0,
+          uniqueProducts: 0,
+        },
+      })
+    }
+
+    // Insert only new (non-duplicate) rows as unclaimed (crewId = null)
+    const created = await db.sale.createMany({
+      data: newSalesData.map((item) => ({
+        tanggal: item.tanggal,
+        idPenjualan: item.idPenjualan || null,
+        statusRetention: item.statusRetention || null,
+        retentionCode: item.retentionCode || null,
+        kodeExtend: item.kodeExtend,
+        brand: item.brand || null,
+        dept: item.dept || null,
+        modul: item.modul || null,
+        ukuran: item.ukuran || null,
+        qty: item.qty,
+        hjp: item.hjp,
+        netto: item.netto,
+        diskon: item.diskon,
+        diskonRp: item.diskonRp,
+        potongan: item.potongan,
+        potonganV: item.potonganV,
+        settle: item.settle,
+        pembayaran: item.pembayaran || null,
+        program: item.program || null,
+        channelStock: item.channelStock || null,
+        crewId: null,
+      })),
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: duplicateCount > 0
+        ? `Berhasil mengimpor ${created.count} data baru (${duplicateCount} duplikat dilewati)`
+        : `Berhasil mengimpor ${created.count} data penjualan`,
+      summary: {
+        totalRows: created.count,
+        duplicateRows: duplicateCount,
+        totalQty: newTotalQty,
+        totalSettle: newTotalSettle,
+        uniqueProducts: newProducts.size,
+      },
+    })
+  } catch (error) {
+    console.error('Upload & import claim error:', error)
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat memproses file' },
+      { status: 500 },
+    )
+  }
+}
+
+// ─────────────────────────────────────────────
+// GET /api/claims — List sales with filters & pagination
+// ─────────────────────────────────────────────
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
+    const limit = Math.max(1, parseInt(searchParams.get('limit') || '50'))
+    const search = searchParams.get('search') || ''
+    const dateFrom = searchParams.get('dateFrom') || ''
+    const dateTo = searchParams.get('dateTo') || ''
+    const program = searchParams.get('program') || ''
+    const claimed = searchParams.get('claimed') || ''
+    const crewId = searchParams.get('crewId') || ''
+
+    // Build Prisma where clause
+    const where: Record<string, any> = {}
+
+    // Claimed filter: "true" → claimed only, "false" → unclaimed only, omit → all
+    if (claimed === 'true') {
+      where.crewId = crewId ? crewId : { not: null }
+    } else if (claimed === 'false') {
+      where.crewId = { equals: null }
+    } else if (crewId) {
+      where.crewId = crewId
+    }
+
+    // Search across kodeExtend, brand, dept, and crew name
+    if (search) {
+      const searchConditions = [
+        { kodeExtend: { contains: search } },
+        { brand: { contains: search } },
+        { dept: { contains: search } },
+      ]
+      // Only add crew name search if there might be a crew relation
+      if (claimed !== 'false') {
+        searchConditions.push({ crew: { name: { contains: search } } })
+      }
+      where.OR = searchConditions
+    }
+
+    // Date range filter on tanggal
+    if (dateFrom || dateTo) {
+      const tanggalFilter: Record<string, unknown> = {}
+      if (dateFrom) tanggalFilter.gte = dateFrom
+      if (dateTo) tanggalFilter.lte = dateTo
+      where.tanggal = tanggalFilter
+    }
+
+    // Program filter
+    if (program) {
+      where.program = program
+    }
+
+    const [sales, total, allSales] = await Promise.all([
+      db.sale.findMany({
+        where,
+        include: {
+          crew: {
+            select: { id: true, name: true, employeeId: true, photo: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      db.sale.count({ where }),
+      // Fetch all matching sales for summary stats (select only needed fields)
+      db.sale.findMany({
+        where,
+        select: { tanggal: true, qty: true, settle: true, hjp: true },
+      }),
+    ])
+
+    const totalPages = Math.max(1, Math.ceil(total / limit))
+
+    // Calculate summary stats
+    const totalQty = allSales.reduce((s, r) => s + r.qty, 0)
+    const totalSettle = allSales.reduce((s, r) => s + r.settle, 0)
+
+    // Basket size: total qty / total struk (struk = unique date+minute+hour)
+    const strukKeys = new Set<string>()
+    for (const s of allSales) {
+      // tanggal format: "DD/MM/YYYY HH:MM" or similar — extract date + hour:minute
+      const match = s.tanggal.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}):(\d{2})/)
+      if (match) {
+        strukKeys.add(`${match[1]}_${match[2]}:${match[3]}`)
+      } else {
+        // Fallback: use full tanggal as-is
+        strukKeys.add(s.tanggal)
+      }
+    }
+    const totalStruk = strukKeys.size
+    const basketSize = totalStruk > 0 ? (totalQty / totalStruk) : 0
+
+    // Price point: average hjp
+    const salesWithHjp = allSales.filter(s => s.hjp > 0)
+    const pricePoint = salesWithHjp.length > 0
+      ? salesWithHjp.reduce((s, r) => s + r.hjp, 0) / salesWithHjp.length
+      : 0
+
+    return NextResponse.json({
+      sales,
+      total,
+      page,
+      totalPages,
+      summary: {
+        totalQty,
+        totalSettle,
+        totalStruk,
+        basketSize: Math.round(basketSize * 100) / 100,
+        pricePoint: Math.round(pricePoint),
+      },
+    })
+  } catch (error) {
+    console.error('Get claims error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+  }
+}
+
+// ─────────────────────────────────────────────
+// PUT /api/claims — Claim sales (assign crew to sales)
+// Uses ATOMIC conditional update: WHERE crewId = null
+// This prevents race conditions when multiple devices claim the same rows
+// ─────────────────────────────────────────────
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { saleIds, crewId } = body as { saleIds?: string[]; crewId?: string }
+
+    if (!saleIds || !Array.isArray(saleIds) || saleIds.length === 0) {
+      return NextResponse.json(
+        { error: 'saleIds harus berupa array yang tidak kosong' },
+        { status: 400 },
+      )
+    }
+
+    if (!crewId) {
+      return NextResponse.json({ error: 'crewId harus diisi' }, { status: 400 })
+    }
+
+    // Verify crew exists
+    const crew = await db.crew.findUnique({ where: { id: crewId } })
+    if (!crew) {
+      return NextResponse.json({ error: 'Crew tidak ditemukan' }, { status: 404 })
+    }
+
+    // ━━━ ATOMIC CLAIM: single updateMany with WHERE crewId = null ━━━
+    // This is the critical fix for race condition.
+    // The database guarantees that only ONE request can set crewId on a row
+    // where crewId was previously null. If another device claimed it first,
+    // the WHERE clause won't match and that row won't be updated.
+    const now = new Date()
+    const result = await db.sale.updateMany({
+      where: {
+        id: { in: saleIds },
+        crewId: null, // ← Atomic check: only update rows that are still unclaimed
+      },
+      data: {
+        crewId,
+        claimedAt: now,
+      },
+    })
+
+    // ── Analyze results ──
+    const requestedCount = saleIds.length
+    const claimedCount = result.count
+    const conflictCount = requestedCount - claimedCount
+
+    // If nothing was claimed, check why
+    if (claimedCount === 0) {
+      // Check if sales exist at all
+      const existingCount = await db.sale.count({
+        where: { id: { in: saleIds } },
+      })
+      if (existingCount === 0) {
+        return NextResponse.json(
+          { error: 'Data penjualan tidak ditemukan', code: 'NOT_FOUND' },
+          { status: 404 },
+        )
+      }
+      // Sales exist but already claimed by someone else
+      // Fetch who claimed them
+      const alreadyClaimed = await db.sale.findMany({
+        where: { id: { in: saleIds } },
+        select: { id: true, crew: { select: { name: true } }, claimedAt: true },
+      })
+      return NextResponse.json({
+        success: false,
+        error: 'Semua data sudah di-claim oleh crew lain',
+        code: 'ALL_CONFLICT',
+        claimedCount: 0,
+        conflictCount: requestedCount,
+        conflictDetails: alreadyClaimed.map(s => ({
+          saleId: s.id,
+          claimedBy: s.crew?.name || 'Unknown',
+          claimedAt: s.claimedAt,
+        })),
+        crewId,
+        crewName: crew.name,
+      }, { status: 409 })
+    }
+
+    // Partial success: some claimed, some conflicted
+    if (conflictCount > 0) {
+      // Fetch details of conflicted sales (who claimed them)
+      const claimedSaleIds = await db.sale.findMany({
+        where: { id: { in: saleIds }, crewId },
+        select: { id: true, settle: true },
+      })
+      const totalSettle = claimedSaleIds.reduce((sum, s) => sum + s.settle, 0)
+
+      const conflictedSales = await db.sale.findMany({
+        where: { id: { in: saleIds }, crewId: { not: crewId } },
+        select: { id: true, crew: { select: { name: true } }, claimedAt: true },
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: `${claimedCount} data berhasil di-claim, ${conflictCount} data sudah di-claim crew lain`,
+        code: 'PARTIAL_CONFLICT',
+        claimedCount,
+        conflictCount,
+        totalSettle,
+        conflictDetails: conflictedSales.map(s => ({
+          saleId: s.id,
+          claimedBy: s.crew?.name || 'Unknown',
+          claimedAt: s.claimedAt,
+        })),
+        crewId,
+        crewName: crew.name,
+      })
+    }
+
+    // Full success: all claimed
+    const claimedSales = await db.sale.findMany({
+      where: { id: { in: saleIds }, crewId },
+      select: { id: true, settle: true },
+    })
+    const totalSettle = claimedSales.reduce((sum, s) => sum + s.settle, 0)
+
+    return NextResponse.json({
+      success: true,
+      message: `Berhasil meng-claim ${claimedCount} data penjualan untuk ${crew.name}`,
+      code: 'SUCCESS',
+      claimedCount,
+      totalSettle,
+      crewId,
+      crewName: crew.name,
+    })
+  } catch (error) {
+    console.error('Claim sales error:', error)
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat meng-claim' },
+      { status: 500 },
+    )
+  }
+}
+
+// ─────────────────────────────────────────────
+// DELETE /api/claims — Delete a sale record
+// ─────────────────────────────────────────────
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID harus diisi' }, { status: 400 })
+    }
+
+    const sale = await db.sale.findUnique({ where: { id } })
+    if (!sale) {
+      return NextResponse.json({ error: 'Data tidak ditemukan' }, { status: 404 })
+    }
+
+    await db.sale.delete({ where: { id } })
+
+    return NextResponse.json({ success: true, message: 'Data penjualan berhasil dihapus' })
+  } catch (error) {
+    console.error('Delete claim error:', error)
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat menghapus' },
+      { status: 500 },
+    )
+  }
+}
