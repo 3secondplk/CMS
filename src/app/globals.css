@@ -657,3 +657,145 @@ textarea:focus {
 .print-only {
   display: none;
 }
+
+/* ─── Premium List Card ──────────────────────────────── */
+.sale-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  background: white;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sale-card:active {
+  transform: scale(0.985);
+}
+.sale-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+}
+.sale-card.sale-claimed::before {
+  background: linear-gradient(90deg, #059669, #10b981, #34d399);
+}
+.sale-card.sale-selected {
+  box-shadow: 0 0 0 2px oklch(0.606 0.25 165.612 / 0.3), 0 8px 25px -5px oklch(0.606 0.15 165.612 / 0.15);
+}
+.sale-card.sale-selected::before {
+  background: linear-gradient(90deg, #059669, #34d399);
+}
+
+.dark .sale-card {
+  background: oklch(0.17 0 0);
+  border: 1px solid oklch(1 0 0 / 0.06);
+}
+.dark .sale-card.sale-selected {
+  box-shadow: 0 0 0 2px oklch(0.606 0.25 165.612 / 0.2), 0 8px 25px -5px oklch(0.606 0.15 165.612 / 0.1);
+}
+
+/* ─── Premium Checkbox ───────────────────────────────── */
+.sale-checkbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 2px solid oklch(0.75 0 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  cursor: pointer;
+  background: white;
+}
+.sale-checkbox:active {
+  transform: scale(0.9);
+}
+.sale-checkbox.checked {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
+}
+.dark .sale-checkbox {
+  background: oklch(0.25 0 0);
+  border-color: oklch(0.5 0 0);
+}
+
+/* ─── Tag Chip ────────────────────────────────────────── */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.tag-chip-dept {
+  background: oklch(0.96 0.01 165);
+  color: oklch(0.45 0.08 165);
+}
+.tag-chip-program {
+  background: oklch(0.95 0.02 290);
+  color: oklch(0.45 0.1 290);
+}
+.tag-chip-payment {
+  background: oklch(0.96 0.01 80);
+  color: oklch(0.4 0.08 80);
+}
+.tag-chip-brand {
+  background: oklch(0.96 0.005 200);
+  color: oklch(0.45 0.04 200);
+}
+.dark .tag-chip-dept {
+  background: oklch(0.25 0.01 165);
+  color: oklch(0.7 0.08 165);
+}
+.dark .tag-chip-program {
+  background: oklch(0.25 0.02 290);
+  color: oklch(0.7 0.1 290);
+}
+.dark .tag-chip-payment {
+  background: oklch(0.25 0.01 80);
+  color: oklch(0.7 0.08 80);
+}
+.dark .tag-chip-brand {
+  background: oklch(0.25 0.005 200);
+  color: oklch(0.7 0.04 200);
+}
+
+/* ─── Premium Table Row ──────────────────────────────── */
+.sale-row {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sale-row:hover {
+  background: oklch(0.97 0.01 165 / 0.3) !important;
+}
+.dark .sale-row:hover {
+  background: oklch(0.25 0.01 165 / 0.3) !important;
+}
+.sale-row.row-selected {
+  background: oklch(0.96 0.02 165 / 0.3) !important;
+}
+.dark .sale-row.row-selected {
+  background: oklch(0.22 0.02 165 / 0.3) !important;
+}
+
+/* ─── Skeleton Shimmer ────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, oklch(0.94 0 0) 25%, oklch(0.97 0 0) 50%, oklch(0.94 0 0) 75%);
+  background-size: 400px 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+.dark .skeleton-shimmer {
+  background: linear-gradient(90deg, oklch(0.22 0 0) 25%, oklch(0.28 0 0) 50%, oklch(0.22 0 0) 75%);
+  background-size: 400px 100%;
+}

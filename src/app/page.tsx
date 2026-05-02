@@ -25,7 +25,7 @@ import {
   Calendar, Award, Flame, CircleDot, Package, Clock, Shield,
   Sun, Moon, AlertTriangle, UploadCloud, X, Download, Sparkles, Eye, RefreshCw, Percent, ChevronUp, UserCheck,
   Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart,
-  CalendarDays, CalendarRange, Hand, PartyPopper, GripVertical
+  CalendarDays, CalendarRange, Hand, PartyPopper, GripVertical, SlidersHorizontal, ChevronDown
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
@@ -151,13 +151,23 @@ function getDeptColor(dept: string): string {
 
 function getWeekRange(): { from: string; to: string } {
   const now = getWIBDate()
-  const dayOfWeek = now.getDay() || 7
-  const monday = new Date(now)
-  monday.setDate(now.getDate() - dayOfWeek + 1)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return { from: fmt(monday), to: fmt(sunday) }
+  const dayOfMonth = now.getDate()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth()
+
+  // Month-based weeks (same as dashboard API): Week 1 = 1-7, Week 2 = 8-14, etc.
+  let currentWeek = 1
+  if (dayOfMonth <= 7) currentWeek = 1
+  else if (dayOfMonth <= 14) currentWeek = 2
+  else if (dayOfMonth <= 21) currentWeek = 3
+  else currentWeek = 4
+
+  const weekStart = (currentWeek - 1) * 7 + 1
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+  const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
+
+  const fmt = (d: number) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  return { from: fmt(weekStart), to: fmt(weekEnd) }
 }
 
 function getMonthRange(): { from: string; to: string } {
@@ -290,6 +300,7 @@ export default function Home() {
   const [editSaleSaving, setEditSaleSaving] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
+  const [showFilterPanel, setShowFilterPanel] = useState(false)
 
   // Dashboard state
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
@@ -645,7 +656,7 @@ export default function Home() {
       modul: sale.modul || '',
       pembayaran: sale.pembayaran || '',
       program: sale.program || '',
-      crewId: sale.crew?.id || '',
+      crewId: sale.crew?.id || '__none__',
     })
   }
 
@@ -665,7 +676,7 @@ export default function Home() {
         modul: editSaleForm.modul,
         pembayaran: editSaleForm.pembayaran,
         program: editSaleForm.program,
-        crewId: editSaleForm.crewId || null,
+        crewId: (editSaleForm.crewId && editSaleForm.crewId !== '__none__') ? editSaleForm.crewId : null,
       }
       const r = await fetch('/api/claims', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await r.json()
@@ -741,6 +752,17 @@ export default function Home() {
     if (!claimDateFrom && !claimDateTo) return 'all'
     return 'custom'
   }, [claimDateFrom, claimDateTo, todayStr])
+
+  // Count active filters for badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (claimSearch) count++
+    if (claimFilterProgram) count++
+    if (claimFilterCrew) count++
+    if (activeQuickFilter === 'custom') count++
+    if (claimShowClaimed !== 'unclaimed') count++
+    return count
+  }, [claimSearch, claimFilterProgram, claimFilterCrew, activeQuickFilter, claimShowClaimed])
 
   // ─── Management handlers ──────────────────────────────
   const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string }) => {
@@ -1545,7 +1567,7 @@ export default function Home() {
             </TabsContent>
 
             {/* ─── Claims Tab ───────────────────────────── */}
-            <TabsContent value="claims" className="mt-4 sm:mt-6 pb-8">
+            <TabsContent value="claims" className="mt-4 sm:mt-6 pb-8 overflow-hidden">
               <motion.div {...stagger} className="space-y-6">
                 {/* Upload Modal Dialog */}
                 <Dialog open={showUploadModal} onOpenChange={open => { setShowUploadModal(open); if (!open) { setUploadResult(null); setIsDragOver(false) } }}>
@@ -1746,141 +1768,21 @@ export default function Home() {
                   </motion.div>
                 )}
 
-                {/* Section 3: Claim Action Bar (shows when sales are selected) */}
-                <AnimatePresence>
-                  {selectedSaleIds.size > 0 && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-                      <Card className="border-2 border-emerald-300 dark:border-emerald-700 shadow-lg shadow-emerald-500/10 overflow-hidden">
-                        <CardContent className="p-3 sm:p-4">
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                            {/* Selected info with total settle */}
-                            <div className="flex items-center gap-2 shrink-0">
-                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
-                                <CheckCircle2 className="w-3 h-3 mr-1" />{selectedSaleIds.size} item
-                              </Badge>
-                              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(selectedItemsTotal)}</span>
-                            </div>
-
-                            {/* Selected items preview badges */}
-                            {selectedItemsPreview.length > 0 && (
-                              <div className="flex items-center gap-1 overflow-hidden flex-1 min-w-0 max-w-full sm:max-w-[200px]">
-                                {selectedItemsPreview.map((s, i) => (
-                                  <Badge key={s.id} variant="outline" className="text-[9px] px-1.5 py-0 h-5 font-mono shrink-0 bg-muted/50 border-border/50">
-                                    {s.kodeExtend.length > 10 ? s.kodeExtend.slice(0, 10) + '…' : s.kodeExtend}
-                                  </Badge>
-                                ))}
-                                {selectedSaleIds.size > 3 && (
-                                  <span className="text-[10px] text-muted-foreground shrink-0">+{selectedSaleIds.size - 3}</span>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Separator */}
-                            <div className="hidden sm:block w-px h-8 bg-border/50" />
-
-                            {/* Crew search or selected crew chip */}
-                            {selectedClaimCrew && selectedClaimCrewId ? (
-                              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex-1 sm:flex-none">
-                                  <Avatar className="w-5 h-5">
-                                    <AvatarImage src={selectedClaimCrew.photo || ''} />
-                                    <AvatarFallback className="text-[7px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
-                                      {selectedClaimCrew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 truncate">{selectedClaimCrew.name}</span>
-                                  <button onClick={() => { setSelectedClaimCrewId(''); setClaimCrewSearch('') }} className="ml-1 text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-300">
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                </div>
-                                <div className="flex items-center gap-2 w-full sm:w-auto">
-                                  <Button
-                                    onClick={() => handleClaimSales(0)}
-                                    disabled={claiming}
-                                    className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed animate-pulse-glow"
-                                  >
-                                    {claiming ? (
-                                      <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />Claiming...</>
-                                    ) : (
-                                      <><UserCheck className="w-4 h-4 mr-2" />Claim ({selectedSaleIds.size})</>
-                                    )}
-                                  </Button>
-                                  <Button variant="ghost" onClick={() => setSelectedSaleIds(new Set())} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 shrink-0" title="Batal pilih">
-                                    <X className="w-4 h-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="relative flex-1 w-full sm:max-w-xs">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                  placeholder="Cari nama crew..."
-                                  value={claimCrewSearch}
-                                  onChange={e => { setClaimCrewSearch(e.target.value); setSelectedClaimCrewId('') }}
-                                  className="pl-9 h-9 w-full"
-                                />
-                                {!selectedClaimCrewId && claimCrewResults.length > 0 && (
-                                  <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border bg-white dark:bg-gray-900 shadow-lg z-50 max-h-48 overflow-y-auto">
-                                    {claimCrewResults.map(c => (
-                                      <button
-                                        key={c.id}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
-                                        onClick={() => { setClaimCrewSearch(c.name); setSelectedClaimCrewId(c.id) }}
-                                      >
-                                        <Avatar className="w-6 h-6">
-                                          <AvatarImage src={c.photo || ''} />
-                                          <AvatarFallback className="text-[8px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
-                                            {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                          </AvatarFallback>
-                                        </Avatar>
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-xs font-medium truncate">{c.name}</p>
-                                          <p className="text-[10px] text-muted-foreground">{c.employeeId} — {c.group?.name}</p>
-                                        </div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-2 w-full sm:w-auto mt-2">
-                                  <Button
-                                    onClick={() => handleClaimSales(0)}
-                                    disabled={true}
-                                    className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    <><UserCheck className="w-4 h-4 mr-2" />Claim ({selectedSaleIds.size})</>
-                                  </Button>
-                                  <Button variant="ghost" onClick={() => setSelectedSaleIds(new Set())} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 shrink-0" title="Batal pilih">
-                                    <X className="w-4 h-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Real-time claim lock indicator */}
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              <span>Anti double-claim aktif</span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {/* Section 3: Removed — Claim Action Bar is now a floating bottom bar */}
 
                 {/* Section 4: Laporan Penjualan Table */}
                 <motion.div {...fadeIn} transition={{ delay: 0.15 }}>
-                  <Card className="border-0 shadow-lg card-hover-glow">
+                  <Card className="border-0 shadow-lg card-hover-glow overflow-hidden">
                     <CardHeader className="pb-3">
-                      <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-3 min-w-0">
                         {/* Header row */}
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <ShoppingCart className="w-5 h-5 text-emerald-500" />
-                            <CardTitle className="text-base">Laporan Penjualan</CardTitle>
-                            <Badge variant="outline" className="text-xs">{fmtNum(claimTotal)} data</Badge>
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <ShoppingCart className="w-5 h-5 text-emerald-500 shrink-0" />
+                            <CardTitle className="text-base truncate">Laporan Penjualan</CardTitle>
+                            <Badge variant="outline" className="text-xs shrink-0">{fmtNum(claimTotal)} data</Badge>
                           </div>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md shadow-emerald-500/20" onClick={() => setShowUploadModal(true)}>
                               <UploadCloud className="w-3.5 h-3.5" /> Upload
                             </Button>
@@ -1944,74 +1846,221 @@ export default function Home() {
                           ))}
                         </div>
 
-                        {/* Search + Filters row */}
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <div className="relative flex-1 sm:w-72">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Cari kode, brand, dept, crew..." value={claimSearch} onChange={e => { setClaimSearch(e.target.value) }}
-                              className="pl-9 h-9 w-full" />
-                          </div>
-                          <Select value={claimFilterProgram || '__all__'} onValueChange={v => { setClaimFilterProgram(v === '__all__' ? '' : v) }}>
-                            <SelectTrigger className="h-9 w-full sm:w-40 text-xs">
-                              <Sparkles className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                              <SelectValue placeholder="Program" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__all__">Semua Program</SelectItem>
-                              {programs.map(p => (
-                                <SelectItem key={p} value={p}>{p}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Select value={claimFilterCrew || '__all__'} onValueChange={v => { setClaimFilterCrew(v === '__all__' ? '' : v) }}>
-                            <SelectTrigger className="h-9 w-full sm:w-48 text-xs">
-                              <Users className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                              <SelectValue placeholder="Semua Crew" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__all__">Semua Crew</SelectItem>
-                              {crews.map(c => (
-                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                        {/* ─── MOBILE: Premium collapsible filter panel ─── */}
+                        <div className="sm:hidden">
+                          {/* Toggle button */}
+                          <button
+                            onClick={() => setShowFilterPanel(!showFilterPanel)}
+                            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-gray-50 to-gray-100/80 dark:from-gray-900 dark:to-gray-800/80 border border-border/60 transition-all active:scale-[0.98]"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center">
+                                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              </div>
+                              <span className="text-xs font-semibold text-foreground">Filter & Pencarian</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {activeFilterCount > 0 && (
+                                <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                  {activeFilterCount}
+                                </span>
+                              )}
+                              <motion.div animate={{ rotate: showFilterPanel ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                              </motion.div>
+                            </div>
+                          </button>
+
+                          {/* Expandable panel */}
+                          <AnimatePresence>
+                            {showFilterPanel && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.25, ease: 'easeInOut' }}
+                                className="overflow-hidden"
+                              >
+                                <div className="pt-3 space-y-3">
+                                  {/* Search */}
+                                  <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                      placeholder="Cari kode, brand, dept, crew..."
+                                      value={claimSearch}
+                                      onChange={e => setClaimSearch(e.target.value)}
+                                      className="pl-9 h-10 w-full rounded-xl bg-white dark:bg-gray-900 border-border/60 text-sm"
+                                    />
+                                    {claimSearch && (
+                                      <button onClick={() => setClaimSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Program & Crew side by side */}
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <Select value={claimFilterProgram || '__all__'} onValueChange={v => setClaimFilterProgram(v === '__all__' ? '' : v)}>
+                                      <SelectTrigger className="h-10 w-full text-xs rounded-xl bg-white dark:bg-gray-900 border-border/60">
+                                        <Sparkles className="w-3.5 h-3.5 mr-1 text-muted-foreground shrink-0" />
+                                        <SelectValue placeholder="Program" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__all__">Semua</SelectItem>
+                                        {programs.map(p => (
+                                          <SelectItem key={p} value={p}>{p}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <Select value={claimFilterCrew || '__all__'} onValueChange={v => setClaimFilterCrew(v === '__all__' ? '' : v)}>
+                                      <SelectTrigger className="h-10 w-full text-xs rounded-xl bg-white dark:bg-gray-900 border-border/60">
+                                        <Users className="w-3.5 h-3.5 mr-1 text-muted-foreground shrink-0" />
+                                        <SelectValue placeholder="Crew" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__all__">Semua</SelectItem>
+                                        {crews.map(c => (
+                                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+
+                                  {/* Date range — each date in its own card row */}
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-1.5 px-1">
+                                      <Calendar className="w-3 h-3 text-muted-foreground" />
+                                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Rentang Tanggal</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] text-muted-foreground px-1">Dari</span>
+                                        <Input
+                                          type="date"
+                                          value={claimDateFrom}
+                                          onChange={e => setClaimDateFrom(e.target.value)}
+                                          className="h-10 w-full text-xs rounded-xl bg-white dark:bg-gray-900 border-border/60"
+                                        />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] text-muted-foreground px-1">Sampai</span>
+                                        <Input
+                                          type="date"
+                                          value={claimDateTo}
+                                          onChange={e => setClaimDateTo(e.target.value)}
+                                          className="h-10 w-full text-xs rounded-xl bg-white dark:bg-gray-900 border-border/60"
+                                        />
+                                      </div>
+                                    </div>
+                                    {(claimDateFrom || claimDateTo) && (
+                                      <button
+                                        onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}
+                                        className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium px-1 flex items-center gap-1 active:opacity-70"
+                                      >
+                                        <X className="w-2.5 h-2.5" /> Reset tanggal
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
 
-                        {/* Date filter — default today */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted/50 border">
-                            <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide hidden sm:inline">Tanggal</span>
-                            <Input type="date" value={claimDateFrom} onChange={e => setClaimDateFrom(e.target.value)} className="h-7 w-[130px] text-xs border-0 shadow-none p-0" />
-                            <span className="text-xs text-muted-foreground">–</span>
-                            <Input type="date" value={claimDateTo} onChange={e => setClaimDateTo(e.target.value)} className="h-7 w-[130px] text-xs border-0 shadow-none p-0" />
-                            <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Reset tanggal" onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}>
-                              <X className="w-3 h-3" />
-                            </Button>
+                        {/* ─── DESKTOP (sm+): Horizontal inline filters ─── */}
+                        <div className="hidden sm:block">
+                          {/* Search bar */}
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input placeholder="Cari kode, brand, dept, crew..." value={claimSearch} onChange={e => { setClaimSearch(e.target.value) }}
+                              className="pl-9 h-9 w-full sm:w-72" />
+                          </div>
+                          {/* Filters row */}
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <Select value={claimFilterProgram || '__all__'} onValueChange={v => { setClaimFilterProgram(v === '__all__' ? '' : v) }}>
+                              <SelectTrigger className="h-9 w-auto min-w-[140px] text-xs">
+                                <Sparkles className="w-3.5 h-3.5 mr-1 text-muted-foreground shrink-0" />
+                                <SelectValue placeholder="Program" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__all__">Semua Program</SelectItem>
+                                {programs.map(p => (
+                                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select value={claimFilterCrew || '__all__'} onValueChange={v => { setClaimFilterCrew(v === '__all__' ? '' : v) }}>
+                              <SelectTrigger className="h-9 w-auto min-w-[160px] text-xs">
+                                <Users className="w-3.5 h-3.5 mr-1 text-muted-foreground shrink-0" />
+                                <SelectValue placeholder="Semua Crew" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__all__">Semua Crew</SelectItem>
+                                {crews.map(c => (
+                                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {/* Date filter inline */}
+                            <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-muted/50 border">
+                              <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide hidden md:inline">Tanggal</span>
+                              <Input type="date" value={claimDateFrom} onChange={e => setClaimDateFrom(e.target.value)} className="h-7 w-[120px] text-xs border-0 shadow-none p-0" />
+                              <span className="text-xs text-muted-foreground">–</span>
+                              <Input type="date" value={claimDateTo} onChange={e => setClaimDateTo(e.target.value)} className="h-7 w-[120px] text-xs border-0 shadow-none p-0" />
+                              <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground shrink-0" title="Reset tanggal" onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}>
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="min-w-0 overflow-hidden">
                       {claimsLoading ? (
-                        <div className="space-y-3 animate-pulse">
-                          <div className="md:hidden space-y-2">
-                            {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
+                        <div className="space-y-3">
+                          <div className="md:hidden space-y-3">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <div key={i} className="sale-card border border-border/40">
+                                <div className="p-4">
+                                  <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-[22px] h-[22px] rounded-[7px] skeleton-shimmer" />
+                                    <div className="flex-1">
+                                      <div className="h-4 skeleton-shimmer rounded-md w-3/4 mb-1.5" />
+                                      <div className="h-2.5 skeleton-shimmer rounded-md w-1/2" />
+                                    </div>
+                                    <div className="h-5 w-16 skeleton-shimmer rounded-full" />
+                                  </div>
+                                  <div className="h-6 skeleton-shimmer rounded-md w-2/5 mb-3" />
+                                  <div className="flex gap-1.5 mb-3">
+                                    <div className="h-5 w-16 skeleton-shimmer rounded-md" />
+                                    <div className="h-5 w-20 skeleton-shimmer rounded-md" />
+                                    <div className="h-5 w-14 skeleton-shimmer rounded-md" />
+                                  </div>
+                                  <div className="flex items-center gap-2 pt-3 border-t border-border/30">
+                                    <div className="w-7 h-7 rounded-full skeleton-shimmer" />
+                                    <div className="h-3 skeleton-shimmer rounded-md w-24" />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                           <div className="hidden md:block">
                             <Table>
                               <TableHeader>
-                                <TableRow className="hover:bg-transparent bg-muted/50">
-                                  <TableHead className="text-xs">Tanggal</TableHead>
-                                  <TableHead className="text-xs">Kode Extend</TableHead>
-                                  <TableHead className="text-xs">Dept</TableHead>
-                                  <TableHead className="text-xs text-right">Qty</TableHead>
-                                  <TableHead className="text-xs text-right">Settle</TableHead>
-                                  <TableHead className="text-xs">Crew</TableHead>
+                                <TableRow className="hover:bg-transparent bg-gradient-to-r from-muted/80 to-muted/40">
+                                  <TableHead className="text-[11px]">Tanggal</TableHead>
+                                  <TableHead className="text-[11px]">Dept</TableHead>
+                                  <TableHead className="text-[11px]">Kode Extend</TableHead>
+                                  <TableHead className="text-[11px] text-right">Qty</TableHead>
+                                  <TableHead className="text-[11px] text-right">Settle</TableHead>
+                                  <TableHead className="text-[11px]">Pembayaran</TableHead>
+                                  <TableHead className="text-[11px]">Program</TableHead>
+                                  <TableHead className="text-[11px]">Crew</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
+                                {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={8} />)}
                               </TableBody>
                             </Table>
                           </div>
@@ -2059,126 +2108,155 @@ export default function Home() {
                         )
                       ) : (
                         <>
-                          {/* Mobile Card View */}
-                          <div className="md:hidden space-y-2">
-                            {sortedClaimSales.map((sale) => (
-                              <motion.div
-                                key={sale.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                whileTap={{ scale: 0.98 }}
-                                className={`p-3 rounded-lg border bg-white dark:bg-gray-900 transition-all duration-200 active:scale-[0.98] ${selectedSaleIds.has(sale.id) ? 'border-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800 shadow-md shadow-emerald-500/10' : 'hover:shadow-sm'}`}
-                                style={{ borderLeftWidth: '3px', borderLeftColor: sale.crew ? '#059669' : '#f59e0b' }}
-                              >
-                                {/* Top row: checkbox, kode, status badge, settle */}
-                                <div className="flex items-center gap-2 mb-1.5">
-                                  {!sale.crew && (
-                                    <button
-                                      onClick={() => {
-                                        const next = new Set(selectedSaleIds)
-                                        if (next.has(sale.id)) next.delete(sale.id)
-                                        else next.add(sale.id)
-                                        setSelectedSaleIds(next)
-                                      }}
-                                      className="w-4 h-4 rounded border-2 flex items-center justify-center transition-colors shrink-0"
-                                      style={{ backgroundColor: selectedSaleIds.has(sale.id) ? '#059669' : 'transparent', borderColor: selectedSaleIds.has(sale.id) ? '#059669' : 'rgb(156 163 175)' }}
-                                    >
-                                      {selectedSaleIds.has(sale.id) && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                    </button>
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-xs font-mono font-bold truncate block">{sale.kodeExtend}</span>
-                                  </div>
-                                  {/* Claim status badge */}
-                                  {sale.crew ? (
-                                    <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[9px] px-1.5 py-0 h-5 shrink-0">
-                                      <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />Claimed
-                                    </Badge>
-                                  ) : (
-                                    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border-amber-200 dark:border-amber-800 text-[9px] px-1.5 py-0 h-5 shrink-0">
-                                      Belum Claim
-                                    </Badge>
-                                  )}
-                                </div>
-
-                                {/* Settle amount — prominent */}
-                                <div className="flex items-center gap-2 mb-2">
-                                  <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(sale.settle)}</span>
-                                  {sale.claimedAt && (
-                                    <span className="text-[9px] text-muted-foreground ml-auto">{timeAgo(sale.claimedAt)}</span>
-                                  )}
-                                </div>
-
-                                {/* Details grid */}
-                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                                  <div className="text-muted-foreground flex items-center gap-1">
-                                    <Calendar className="w-2.5 h-2.5" />Tanggal
-                                  </div>
-                                  <div className="text-right">{sale.tanggal}</div>
-                                  {sale.dept && (
-                                    <>
-                                      <div className="text-muted-foreground flex items-center gap-1">
-                                        <div className={`w-2 h-2 rounded-full ${getDeptColor(sale.dept)} shrink-0`} />
-                                        Dept
+                          {/* Mobile Card View — Premium */}
+                          <div className="md:hidden space-y-3">
+                            {sortedClaimSales.map((sale, idx) => {
+                              const isSelected = selectedSaleIds.has(sale.id)
+                              const isClaimed = !!sale.crew
+                              return (
+                                <motion.div
+                                  key={sale.id}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ delay: Math.min(idx * 0.03, 0.3), duration: 0.3 }}
+                                  className={`sale-card shadow-sm border border-border/40 ${isClaimed ? 'sale-claimed' : ''} ${isSelected ? 'sale-selected' : ''}`}
+                                >
+                                  <div className="p-4">
+                                    {/* ── Top: Checkbox + Kode + Status ── */}
+                                    <div className="flex items-center gap-3 mb-3">
+                                      {!sale.crew && (
+                                        <div
+                                          onClick={() => {
+                                            const next = new Set(selectedSaleIds)
+                                            if (next.has(sale.id)) next.delete(sale.id)
+                                            else next.add(sale.id)
+                                            setSelectedSaleIds(next)
+                                          }}
+                                          className={`sale-checkbox ${isSelected ? 'checked' : ''}`}
+                                        >
+                                          {isSelected && (
+                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-mono font-bold text-foreground tracking-tight truncate">{sale.kodeExtend}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                                          <Calendar className="w-2.5 h-2.5" />
+                                          {sale.tanggal}
+                                          <span className="text-muted-foreground/40 mx-0.5">·</span>
+                                          <Package className="w-2.5 h-2.5" />
+                                          {sale.qty} qty
+                                        </p>
                                       </div>
-                                      <div className="text-right">{sale.dept}</div>
-                                    </>
-                                  )}
-                                  {sale.brand && (<><div className="text-muted-foreground">Brand</div><div className="text-right truncate">{sale.brand}</div></>)}
-                                  <div className="text-muted-foreground">Qty</div>
-                                  <div className="text-right font-medium">{sale.qty}</div>
-                                  <div className="text-muted-foreground">Crew</div>
-                                  <div className="text-right">
-                                    {sale.crew ? (
-                                      <div className="flex items-center justify-end gap-1.5">
-                                        <span className="text-emerald-600 dark:text-emerald-400 font-medium truncate">{sale.crew.name}</span>
-                                        {sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) && (
-                                          <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0" />
+                                      {/* Status pill */}
+                                      {isClaimed ? (
+                                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 shrink-0">
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Claimed</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 shrink-0">
+                                          <Clock className="w-3 h-3 text-amber-500" />
+                                          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">Open</span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* ── Hero: Settle Amount ── */}
+                                    <div className="flex items-end justify-between mb-3">
+                                      <p className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-600 to-emerald-500 dark:from-emerald-400 dark:to-emerald-300 bg-clip-text text-transparent">
+                                        {fmtRp(sale.settle)}
+                                      </p>
+                                      {sale.claimedAt && (
+                                        <span className="text-[10px] text-muted-foreground flex items-center gap-1 mb-0.5">
+                                          {sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) && (
+                                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                                          )}
+                                          {timeAgo(sale.claimedAt)}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* ── Tag Chips Row ── */}
+                                    {(sale.dept || sale.brand || sale.program || sale.pembayaran) && (
+                                      <div className="flex flex-wrap gap-1.5 mb-3">
+                                        {sale.dept && (
+                                          <span className="tag-chip tag-chip-dept">
+                                            <div className={`w-1.5 h-1.5 rounded-full ${getDeptColor(sale.dept)}`} />
+                                            {sale.dept}
+                                          </span>
+                                        )}
+                                        {sale.brand && (
+                                          <span className="tag-chip tag-chip-brand">
+                                            {sale.brand.length > 15 ? sale.brand.slice(0, 15) + '…' : sale.brand}
+                                          </span>
+                                        )}
+                                        {sale.program && (
+                                          <span className="tag-chip tag-chip-program">
+                                            {sale.program.length > 15 ? sale.program.slice(0, 15) + '…' : sale.program}
+                                          </span>
+                                        )}
+                                        {sale.pembayaran && (
+                                          <span className="tag-chip tag-chip-payment">
+                                            {sale.pembayaran.length > 12 ? sale.pembayaran.slice(0, 12) + '…' : sale.pembayaran}
+                                          </span>
                                         )}
                                       </div>
-                                    ) : (
-                                      <div className="flex items-center justify-end gap-1">
-                                        <span className="text-amber-500 dark:text-amber-400 italic">Belum di-claim</span>
-                                        <GripVertical className="w-3 h-3 text-muted-foreground/30" />
-                                      </div>
                                     )}
+
+                                    {/* ── Crew Section ── */}
+                                    <div className={`flex items-center justify-between ${isClaimed && sale.crew ? 'pt-3 border-t border-border/40' : ''}`}>
+                                      {sale.crew ? (
+                                        <div className="flex items-center gap-2">
+                                          <Avatar className="w-7 h-7 ring-2 ring-emerald-200 dark:ring-emerald-800">
+                                            <AvatarImage src={sale.crew?.photo || ''} />
+                                            <AvatarFallback className="text-[9px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold">
+                                              {sale.crew?.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div className="min-w-0">
+                                            <p className="text-xs font-semibold text-foreground truncate">{sale.crew.name}</p>
+                                            <p className="text-[10px] text-muted-foreground">{sale.crew.employeeId}</p>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-1.5 text-muted-foreground/60">
+                                          <Search className="w-3.5 h-3.5" />
+                                          <span className="text-[11px] italic">Belum di-claim</span>
+                                        </div>
+                                      )}
+
+                                      {/* Admin actions */}
+                                      {isAdmin && (
+                                        <div className="flex items-center gap-0.5">
+                                          <button onClick={() => openEditSale(sale)} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors">
+                                            <Edit2 className="w-3 h-3" />
+                                          </button>
+                                          <button onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                          {sale.crew && (
+                                            <button onClick={() => handleUnclaimSale(sale.id)} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors">
+                                              <X className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
-                                  {/* Payment & Program badges */}
-                                  {sale.pembayaran && (
-                                    <>
-                                      <div className="text-muted-foreground">Pembayaran</div>
-                                      <div className="text-right">
-                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-border/50">{sale.pembayaran}</Badge>
-                                      </div>
-                                    </>
-                                  )}
-                                  {sale.program && (
-                                    <>
-                                      <div className="text-muted-foreground">Program</div>
-                                      <div className="text-right">
-                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400">{sale.program}</Badge>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                                {isAdmin && (
-                                  <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-border/50">
-                                    <button onClick={() => openEditSale(sale)} className="flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"><Edit2 className="w-3 h-3" /> Edit</button>
-                                    <button onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-3 h-3" /> Hapus</button>
-                                    {sale.crew && (
-                                      <button onClick={() => handleUnclaimSale(sale.id)} className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-700 transition-colors ml-auto"><X className="w-3 h-3" /> Unclaim</button>
-                                    )}
-                                  </div>
-                                )}
-                              </motion.div>
-                            ))}
+                                </motion.div>
+                              )
+                            })}
                           </div>
 
-                          {/* Desktop Table View */}
-                          <div className="hidden md:block overflow-x-auto rounded-lg border">
-                            <Table className="table-stripe table-sticky-head">
+                          {/* Desktop Table View — Premium */}
+                          <div className="hidden md:block overflow-x-auto rounded-xl border shadow-sm">
+                            <Table className="table-stripe">
                               <TableHeader>
-                                <TableRow className="hover:bg-transparent">
+                                <TableRow className="hover:bg-transparent bg-gradient-to-r from-muted/80 to-muted/40">
                                   {/* Select column (for unclaimed rows) */}
                                   <TableHead className="w-[40px]">
                                     <button
@@ -2201,29 +2279,28 @@ export default function Home() {
                                       })()}
                                     </button>
                                   </TableHead>
-                                  <TableHead className="w-[100px] min-w-[100px] cursor-pointer select-none" onClick={() => { if (claimSortField === 'tanggal') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('tanggal'); setClaimSortDir('desc') } }}>
+                                  <TableHead className="w-[100px] min-w-[100px] cursor-pointer select-none text-[11px]" onClick={() => { if (claimSortField === 'tanggal') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('tanggal'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center gap-1">Tanggal{claimSortField === 'tanggal' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
-                                  <TableHead className="min-w-[80px]">Dept</TableHead>
-                                  <TableHead className="min-w-[120px]">Kode Extend</TableHead>
-                                  <TableHead className="text-right min-w-[60px] cursor-pointer select-none" onClick={() => { if (claimSortField === 'qty') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('qty'); setClaimSortDir('desc') } }}>
+                                  <TableHead className="min-w-[80px] text-[11px]">Dept</TableHead>
+                                  <TableHead className="min-w-[120px] text-[11px]">Kode Extend</TableHead>
+                                  <TableHead className="text-right min-w-[60px] cursor-pointer select-none text-[11px]" onClick={() => { if (claimSortField === 'qty') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('qty'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center justify-end gap-1">Qty{claimSortField === 'qty' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
-                                  <TableHead className="text-right min-w-[110px] cursor-pointer select-none" onClick={() => { if (claimSortField === 'settle') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('settle'); setClaimSortDir('desc') } }}>
+                                  <TableHead className="text-right min-w-[110px] cursor-pointer select-none text-[11px]" onClick={() => { if (claimSortField === 'settle') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('settle'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center justify-end gap-1">Settle{claimSortField === 'settle' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
-                                  <TableHead className="min-w-[80px]">Pembayaran</TableHead>
-                                  <TableHead className="min-w-[80px]">Program</TableHead>
-                                  <TableHead className="min-w-[160px]">Crew</TableHead>
-                                  {isAdmin && <TableHead className="w-[80px]">Aksi</TableHead>}
+                                  <TableHead className="min-w-[80px] text-[11px]">Pembayaran</TableHead>
+                                  <TableHead className="min-w-[80px] text-[11px]">Program</TableHead>
+                                  <TableHead className="min-w-[160px] text-[11px]">Crew</TableHead>
+                                  {isAdmin && <TableHead className="w-[80px] text-[11px]">Aksi</TableHead>}
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {sortedClaimSales.map((sale) => (
                                   <TableRow
                                     key={sale.id}
-                                    className={`hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 transition-all duration-150 ${selectedSaleIds.has(sale.id) ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}
-                                    style={{ borderLeftWidth: '3px', borderLeftColor: sale.crew ? '#059669' : '#f59e0b' }}
+                                    className={`sale-row ${selectedSaleIds.has(sale.id) ? 'row-selected' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}
                                   >
                                     {/* Checkbox — only for unclaimed */}
                                     <TableCell>
@@ -2255,44 +2332,44 @@ export default function Home() {
                                         </button>
                                       ) : null}
                                     </TableCell>
-                                    <TableCell className="text-xs whitespace-nowrap">{sale.tanggal}</TableCell>
+                                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{sale.tanggal}</TableCell>
                                     <TableCell className="text-xs">
                                       <div className="flex items-center gap-1.5">
                                         {sale.dept && <div className={`w-2 h-2 rounded-full ${getDeptColor(sale.dept)} shrink-0`} />}
-                                        {sale.dept || '-'}
+                                        {sale.dept && <span className="tag-chip tag-chip-dept">{sale.dept}</span>}
+                                        {!sale.dept && <span className="text-muted-foreground">-</span>}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="text-xs font-mono whitespace-nowrap font-medium">{sale.kodeExtend}</TableCell>
-                                    <TableCell className="text-xs text-right">{sale.qty}</TableCell>
-                                    <TableCell className="text-xs text-right font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{fmtRp(sale.settle)}</TableCell>
+                                    <TableCell className="text-xs font-mono whitespace-nowrap font-semibold text-foreground">{sale.kodeExtend}</TableCell>
+                                    <TableCell className="text-xs text-right tabular-nums">{sale.qty}</TableCell>
+                                    <TableCell className="text-xs text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">{fmtRp(sale.settle)}</TableCell>
                                     {/* Pembayaran column */}
                                     <TableCell>
                                       {sale.pembayaran ? (
-                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-5 border-border/50 font-normal">{sale.pembayaran}</Badge>
+                                        <span className="tag-chip tag-chip-payment">{sale.pembayaran}</span>
                                       ) : <span className="text-xs text-muted-foreground">-</span>}
                                     </TableCell>
                                     {/* Program column */}
                                     <TableCell>
                                       {sale.program ? (
-                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-5 border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 font-normal">{sale.program}</Badge>
+                                        <span className="tag-chip tag-chip-program">{sale.program}</span>
                                       ) : <span className="text-xs text-muted-foreground">-</span>}
                                     </TableCell>
                                     {/* Crew column */}
                                     <TableCell>
                                       {sale.crew ? (
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-2">
                                           <div className="relative">
-                                            <Avatar className="w-6 h-6">
+                                            <Avatar className="w-7 h-7 ring-1 ring-emerald-200 dark:ring-emerald-800">
                                               <AvatarImage src={sale.crew?.photo || ''} />
-                                              <AvatarFallback className="text-[9px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">{(sale.crew?.name || '?')[0]}</AvatarFallback>
+                                              <AvatarFallback className="text-[9px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold">{(sale.crew?.name || '?')[0]}</AvatarFallback>
                                             </Avatar>
-                                            {/* Green dot for recently claimed (within 2 minutes) */}
                                             {sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) && (
                                               <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-background animate-pulse" />
                                             )}
                                           </div>
                                           <div className="flex flex-col min-w-0">
-                                            <span className="text-xs truncate max-w-[120px] font-medium">{sale.crew?.name || 'Unknown'}</span>
+                                            <span className="text-xs truncate max-w-[120px] font-semibold text-foreground">{sale.crew?.name || 'Unknown'}</span>
                                             {sale.claimedAt && (
                                               <span className="text-[9px] text-muted-foreground">{timeAgo(sale.claimedAt)}</span>
                                             )}
@@ -2300,7 +2377,7 @@ export default function Home() {
                                           {isAdmin && (
                                             <button
                                               onClick={() => handleUnclaimSale(sale.id)}
-                                              className="ml-auto shrink-0 p-1 rounded text-muted-foreground hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+                                              className="ml-auto shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
                                               title="Unclaim"
                                             >
                                               <X className="w-3 h-3" />
@@ -2308,7 +2385,7 @@ export default function Home() {
                                           )}
                                         </div>
                                       ) : (
-                                        <div className="flex items-center gap-1.5 text-amber-500 dark:text-amber-400">
+                                        <div className="flex items-center gap-1.5 text-muted-foreground/60">
                                           <Search className="w-3.5 h-3.5 shrink-0" />
                                           <span className="text-xs italic">Belum di-claim</span>
                                         </div>
@@ -2317,10 +2394,10 @@ export default function Home() {
                                     {isAdmin && (
                                       <TableCell>
                                         <div className="flex items-center gap-0.5">
-                                          <Button size="icon" variant="ghost" className="h-7 w-7 text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => openEditSale(sale)}>
+                                          <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => openEditSale(sale)}>
                                             <Edit2 className="w-3.5 h-3.5" />
                                           </Button>
-                                          <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })}>
+                                          <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => setDeleteConfirm({ type: 'sale', id: sale.id, name: `${sale.kodeExtend}${sale.crew ? ` — ${sale.crew.name}` : ' (unclaimed)'}` })}>
                                             <Trash2 className="w-3.5 h-3.5" />
                                           </Button>
                                         </div>
@@ -2367,53 +2444,7 @@ export default function Home() {
                   </Card>
                 </motion.div>
 
-                {/* ── Mobile Selected Items Summary Bar ── */}
-                <AnimatePresence>
-                  {selectedSaleIds.size > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 20 }}
-                      className="md:hidden fixed bottom-16 left-0 right-0 z-40 px-3 pb-1"
-                    >
-                      <div className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-border/60 rounded-2xl shadow-xl shadow-black/10 p-3 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
-                              {selectedSaleIds.size} item
-                            </Badge>
-                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 truncate">{fmtRp(selectedItemsTotal)}</span>
-                          </div>
-                          {selectedClaimCrew && (
-                            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                              → {selectedClaimCrew.name}
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={() => handleClaimSales(0)}
-                          disabled={claiming || !selectedClaimCrewId}
-                          className="h-9 bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed text-xs px-4"
-                        >
-                          {claiming ? (
-                            <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />Claim...</>
-                          ) : (
-                            <><UserCheck className="w-3.5 h-3.5 mr-1.5" />Claim</>
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setSelectedSaleIds(new Set())}
-                          className="h-9 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs px-3"
-                        >
-                          Batal
-                        </Button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {/* ── Mobile Selected Items Bar removed — merged into Floating Claim Bar below ── */}
               </motion.div>
             </TabsContent>
 
@@ -3060,13 +3091,13 @@ export default function Home() {
                     <SelectValue placeholder="Pilih crew..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— Belum di-claim (Unclaim) —</SelectItem>
+                    <SelectItem value="__none__">— Belum di-claim (Unclaim) —</SelectItem>
                     {crews.map(c => (
                       <SelectItem key={c.id} value={c.id}>{c.name} ({c.employeeId})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {editSaleDialog.crew && editSaleForm.crewId === '' && (
+                {editSaleDialog.crew && editSaleForm.crewId === '__none__' && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Data akan di-unclaim dari {editSaleDialog.crew.name}</p>
                 )}
               </div>
@@ -3229,6 +3260,141 @@ export default function Home() {
           >
             <ChevronUp className="w-5 h-5" />
           </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ FLOATING CLAIM BAR ═══ */}
+      <AnimatePresence>
+        {selectedSaleIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 100 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed z-40 left-0 right-0 md:left-auto md:right-6 md:bottom-6 md:w-[440px]"
+            style={{ bottom: 'max(60px, env(safe-area-inset-bottom, 60px))' }}
+          >
+            <div className="mx-3 mb-1 md:mx-0 md:mb-0 rounded-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-emerald-200 dark:border-emerald-800 shadow-2xl shadow-emerald-500/10 overflow-hidden">
+              {/* Top row: info + close */}
+              <div className="flex items-center justify-between px-3 pt-3 pb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 shrink-0">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-foreground truncate">
+                      {selectedSaleIds.size} item dipilih
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">{fmtRp(selectedItemsTotal)}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedSaleIds(new Set())}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shrink-0"
+                  title="Batal pilih"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Preview badges */}
+              {selectedItemsPreview.length > 0 && (
+                <div className="flex items-center gap-1 px-3 pb-2 overflow-hidden">
+                  {selectedItemsPreview.map(s => (
+                    <Badge key={s.id} variant="outline" className="text-[9px] px-1.5 py-0 h-5 font-mono shrink-0 bg-muted/50 border-border/50">
+                      {s.kodeExtend.length > 8 ? s.kodeExtend.slice(0, 8) + '…' : s.kodeExtend}
+                    </Badge>
+                  ))}
+                  {selectedSaleIds.size > 3 && (
+                    <span className="text-[10px] text-muted-foreground shrink-0">+{selectedSaleIds.size - 3}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Crew search or selected crew + claim button */}
+              <div className="px-3 pb-3">
+                {selectedClaimCrew && selectedClaimCrewId ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+                      <Avatar className="w-5 h-5 shrink-0">
+                        <AvatarImage src={selectedClaimCrew.photo || ''} />
+                        <AvatarFallback className="text-[7px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                          {selectedClaimCrew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 truncate">{selectedClaimCrew.name}</span>
+                      <button onClick={() => { setSelectedClaimCrewId(''); setClaimCrewSearch('') }} className="ml-auto text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-300 shrink-0">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <Button
+                      onClick={() => handleClaimSales(0)}
+                      disabled={claiming}
+                      size="sm"
+                      className="shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 animate-pulse-glow h-9 px-4"
+                    >
+                      {claiming ? (
+                        <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />OK</>
+                      ) : (
+                        <><UserCheck className="w-3.5 h-3.5 mr-1.5" />Claim</>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          placeholder="Cari nama crew untuk claim..."
+                          value={claimCrewSearch}
+                          onChange={e => { setClaimCrewSearch(e.target.value); setSelectedClaimCrewId('') }}
+                          className="pl-8 h-9 w-full text-xs rounded-xl"
+                          autoFocus
+                        />
+                      </div>
+                      <Button
+                        onClick={() => handleClaimSales(0)}
+                        disabled={true}
+                        size="sm"
+                        className="shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-700 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed h-9 px-4"
+                      >
+                        <UserCheck className="w-3.5 h-3.5 mr-1.5" />Claim
+                      </Button>
+                    </div>
+                    {/* Crew search dropdown */}
+                    {!selectedClaimCrewId && claimCrewResults.length > 0 && (
+                      <div className="absolute bottom-full left-0 right-8 mb-1 rounded-xl border bg-white dark:bg-gray-900 shadow-xl z-50 max-h-52 overflow-y-auto">
+                        {claimCrewResults.map(c => (
+                          <button
+                            key={c.id}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                            onClick={() => { setClaimCrewSearch(c.name); setSelectedClaimCrewId(c.id) }}
+                          >
+                            <Avatar className="w-7 h-7 shrink-0">
+                              <AvatarImage src={c.photo || ''} />
+                              <AvatarFallback className="text-[8px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                                {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium truncate">{c.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{c.employeeId} — {c.group?.name}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Anti double-claim indicator */}
+                <div className="flex items-center gap-1.5 mt-1.5 px-0.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[9px] text-muted-foreground">Anti double-claim aktif</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

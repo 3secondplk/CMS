@@ -83,31 +83,32 @@ export async function GET(request: NextRequest) {
     // Struk counts per crew per period — using COUNT(DISTINCT idPenjualan)
     // idPenjualan = transaction/receipt ID from POS system
     // One struk can have multiple item rows sharing the same idPenjualan
+    // Quoted identifiers for PostgreSQL compatibility (also works in SQLite)
     const [todayStrukRaw, weekStrukRaw, monthStrukRaw, allTimeStrukRaw] = crewIds.length > 0
       ? await Promise.all([
           db.$queryRaw<Array<{ crewId: string; count: number }>>`
-            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
-            FROM Sale
-            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL AND tanggal LIKE ${todayStr + '%'}
-            GROUP BY crewId
+            SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
+            FROM "Sale"
+            WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL AND "tanggal" LIKE ${todayStr + '%'}
+            GROUP BY "crewId"
           `,
           db.$queryRaw<Array<{ crewId: string; count: number }>>`
-            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
-            FROM Sale
-            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL AND tanggal >= ${weekStartStr} AND tanggal <= ${weekEndStr}
-            GROUP BY crewId
+            SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
+            FROM "Sale"
+            WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL AND "tanggal" >= ${weekStartStr} AND "tanggal" <= ${weekEndStr}
+            GROUP BY "crewId"
           `,
           db.$queryRaw<Array<{ crewId: string; count: number }>>`
-            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
-            FROM Sale
-            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL AND tanggal LIKE ${monthPrefix + '%'}
-            GROUP BY crewId
+            SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
+            FROM "Sale"
+            WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL AND "tanggal" LIKE ${monthPrefix + '%'}
+            GROUP BY "crewId"
           `,
           db.$queryRaw<Array<{ crewId: string; count: number }>>`
-            SELECT crewId, COUNT(DISTINCT idPenjualan) as count
-            FROM Sale
-            WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL
-            GROUP BY crewId
+            SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
+            FROM "Sale"
+            WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL
+            GROUP BY "crewId"
           `,
         ])
       : [[], [], [], []]

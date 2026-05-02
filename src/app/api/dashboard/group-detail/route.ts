@@ -49,22 +49,22 @@ export async function GET(request: NextRequest) {
     switch (period) {
       case 'daily':
         prismaDateFilter = { startsWith: todayStr }
-        sqlDateCondition = Prisma.sql`AND tanggal LIKE ${todayStr + '%'}`
+        sqlDateCondition = Prisma.sql`AND "tanggal" LIKE ${todayStr + '%'}`
         periodLabel = `${dayOfMonth} ${shortMonths[currentMonth]} ${currentYear}`
         break
       case 'weekly':
         prismaDateFilter = { gte: weekStartStr, lte: weekEndStr }
-        sqlDateCondition = Prisma.sql`AND tanggal >= ${weekStartStr} AND tanggal <= ${weekEndStr}`
+        sqlDateCondition = Prisma.sql`AND "tanggal" >= ${weekStartStr} AND "tanggal" <= ${weekEndStr}`
         periodLabel = `Minggu ${currentWeek} (${weekStart}–${weekEnd})`
         break
       case 'monthly':
         prismaDateFilter = { startsWith: monthPrefix }
-        sqlDateCondition = Prisma.sql`AND tanggal LIKE ${monthPrefix + '%'}`
+        sqlDateCondition = Prisma.sql`AND "tanggal" LIKE ${monthPrefix + '%'}`
         periodLabel = `${monthNames[currentMonth]} ${currentYear}`
         break
       default:
         prismaDateFilter = { startsWith: todayStr }
-        sqlDateCondition = Prisma.sql`AND tanggal LIKE ${todayStr + '%'}`
+        sqlDateCondition = Prisma.sql`AND "tanggal" LIKE ${todayStr + '%'}`
         periodLabel = todayStr
     }
 
@@ -99,11 +99,12 @@ export async function GET(request: NextRequest) {
         _count: true,
       }),
       // Count unique idPenjualan (transaction/receipt IDs) per crew
+      // Quoted identifiers for PostgreSQL compatibility
       db.$queryRaw<Array<{ crewId: string; count: number }>>`
-        SELECT crewId, COUNT(DISTINCT idPenjualan) as count
-        FROM Sale
-        WHERE crewId IN (${Prisma.join(crewIds)}) AND idPenjualan IS NOT NULL ${sqlDateCondition}
-        GROUP BY crewId
+        SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
+        FROM "Sale"
+        WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL ${sqlDateCondition}
+        GROUP BY "crewId"
       `,
     ])
 

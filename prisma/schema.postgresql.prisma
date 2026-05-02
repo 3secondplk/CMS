@@ -72,10 +72,11 @@ model Sale {
   channelStock     String?
   claimedAt        DateTime?
   createdAt        DateTime @default(now())
-  
+
   @@index([tanggal])
   @@index([kodeExtend])
   @@index([crewId])
   @@index([program])
   @@index([tanggal, kodeExtend])
+  @@index([idPenjualan])
 }
