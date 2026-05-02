@@ -16,50 +16,51 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    // PERF-02 fix: don't include sales, use aggregation instead
     const crews = await db.crew.findMany({
       where,
       include: { group: true },
       orderBy: { createdAt: 'asc' },
     })
 
-    // Get WIB today for todaySales
+    if (crews.length === 0) return NextResponse.json([])
+
+    const crewIds = crews.map(c => c.id)
+
+    // Get WIB today
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
     const todayStr = `${wibNow.getFullYear()}-${String(wibNow.getMonth() + 1).padStart(2, '0')}-${String(wibNow.getDate()).padStart(2, '0')}`
 
-    const crewIds = crews.map(c => c.id)
+    // PERF: Use groupBy aggregation — NO row loading, DB computes sums
+    const [allTimeAgg, todayAgg] = await Promise.all([
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds } },
+        _sum: { settle: true, qty: true },
+        _count: true,
+      }),
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds }, tanggal: { startsWith: todayStr } },
+        _sum: { settle: true },
+      }),
+    ])
 
-    // Single aggregation query for all crew stats
-    const allSales = crewIds.length > 0
-      ? await db.sale.findMany({
-          where: { crewId: { in: crewIds } },
-          select: { crewId: true, settle: true, qty: true, tanggal: true },
-        })
-      : []
-
-    // Map crewId → sales for O(1) lookup
-    const salesByCrew = new Map<string, { settle: number; qty: number; tanggal: string }[]>()
-    for (const s of allSales) {
-      if (!salesByCrew.has(s.crewId!)) salesByCrew.set(s.crewId!, [])
-      salesByCrew.get(s.crewId!)!.push(s)
-    }
+    // Build lookup maps
+    const allTimeMap = new Map(allTimeAgg.map(a => [a.crewId, a]))
+    const todayMap = new Map(todayAgg.map(a => [a.crewId, a]))
 
     const crewsWithStats = crews.map(crew => {
-      const crewSales = salesByCrew.get(crew.id) || []
-      const totalSales = crewSales.reduce((sum, s) => sum + s.settle, 0)
-      const totalQty = crewSales.reduce((sum, s) => sum + s.qty, 0)
-      const todaySales = crewSales
-        .filter(s => s.tanggal.startsWith(todayStr))
-        .reduce((sum, s) => sum + s.settle, 0)
+      const agg = allTimeMap.get(crew.id)
+      const tAgg = todayMap.get(crew.id)
 
       return {
         ...crew,
-        totalSales,
-        totalQty,
-        todaySales,
-        transactionCount: crewSales.length,
+        totalSales: agg?._sum.settle ?? 0,
+        totalQty: agg?._sum.qty ?? 0,
+        todaySales: tAgg?._sum.settle ?? 0,
+        transactionCount: agg?._count ?? 0,
       }
     })
 

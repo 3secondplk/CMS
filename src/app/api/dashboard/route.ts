@@ -40,7 +40,8 @@ export async function GET(request: NextRequest) {
     const crewIds = crews.map(c => c.id)
 
     // Use groupBy aggregation — MUCH lighter than loading all rows
-    const [monthAgg, todayAgg, weekAgg, allTimeAgg] = crewIds.length > 0
+    // PERF: month and week share same month-prefix data — compute once
+    const [monthAgg, todayAgg, allTimeAgg] = crewIds.length > 0
       ? await Promise.all([
           db.sale.groupBy({
             by: ['crewId'],
@@ -56,23 +57,16 @@ export async function GET(request: NextRequest) {
           }),
           db.sale.groupBy({
             by: ['crewId'],
-            where: { crewId: { in: crewIds }, tanggal: { startsWith: monthPrefix } },
-            _sum: { settle: true, qty: true },
-            _count: true,
-          }),
-          db.sale.groupBy({
-            by: ['crewId'],
             where: { crewId: { in: crewIds } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
         ])
-      : [[], [], [], []]
+      : [[], [], []]
 
     // Build crewId → aggregate lookup maps
     const monthMap = new Map(monthAgg.map(a => [a.crewId, a]))
     const todayMap = new Map(todayAgg.map(a => [a.crewId, a]))
-    // For weekly we reuse monthAgg but filter by day — use monthMap as base
     const allTimeMap = new Map(allTimeAgg.map(a => [a.crewId, a]))
 
     // Calculate per-crew stats from aggregated data
@@ -159,7 +153,21 @@ export async function GET(request: NextRequest) {
     // Base where clause for groupId filter on sales
     const saleGroupFilter = groupId ? { crew: { groupId } } : {}
 
-    const [yesterdayAgg, lastWeekAgg, lastMonthAgg] = await Promise.all([
+    // PERF: Merge groups + recentSales + trend queries into single parallel batch (was 2 sequential rounds, now 1)
+    const [groups, recentSales, yesterdayAgg, lastWeekAgg, lastMonthAgg] = await Promise.all([
+      db.group.findMany({
+        include: { crews: { select: { id: true } } },
+      }),
+      db.sale.findMany({
+        take: 10,
+        where: { crewId: { not: null } },
+        include: {
+          crew: {
+            select: { name: true, photo: true, group: { select: { name: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
       db.sale.aggregate({
         _sum: { settle: true },
         where: { ...saleGroupFilter, tanggal: { startsWith: yesterdayStr } },
@@ -194,10 +202,6 @@ export async function GET(request: NextRequest) {
     }
 
     // Group/Zoning achievements — use aggregated monthMap
-    const groups = await db.group.findMany({
-      include: { crews: { select: { id: true } } },
-    })
-
     const weekFraction = weekEnd > 0 ? (weekEnd - weekStart + 1) / daysInMonth : 0.25
 
     const groupAchievements = groups.map(group => {
@@ -239,18 +243,6 @@ export async function GET(request: NextRequest) {
 
     // Top 3 crews for leaderboard
     const topCrews = sortedCrews.slice(0, 3)
-
-    // Recent activity (last 10 sales)
-    const recentSales = await db.sale.findMany({
-      take: 10,
-      where: { crewId: { not: null } },
-      include: {
-        crew: {
-          select: { name: true, photo: true, group: { select: { name: true } } },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
 
     return NextResponse.json({
       crewStats: sortedCrews,

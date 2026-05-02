@@ -23,7 +23,7 @@ import {
   Edit2, LogOut, Search, FileSpreadsheet, CheckCircle2, AlertCircle,
   ChevronLeft, ChevronRight, DollarSign, ShoppingCart, BarChart3,
   Calendar, Award, Flame, CircleDot, Package, Clock, Shield,
-  Sun, Moon, AlertTriangle, UploadCloud, X, Download, Filter, Sparkles, Eye, RefreshCw, Percent, ChevronUp, UserCheck,
+  Sun, Moon, AlertTriangle, UploadCloud, X, Download, Sparkles, Eye, RefreshCw, Percent, ChevronUp, UserCheck,
   Menu, Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart
 } from 'lucide-react'
 
@@ -115,6 +115,17 @@ function getPageNumbers(currentPage: number, totalPages: number): (number | '...
   if (currentPage < totalPages - 2) pages.push('...')
   pages.push(totalPages)
   return pages
+}
+
+// ─── Safe Fetch with Timeout (8s, Vercel has 10s serverless limit) ──
+async function safeFetch(url: string, opts?: RequestInit, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ─── Animated Counter ────────────────────────────────────
@@ -234,15 +245,15 @@ export default function Home() {
   const [claimTotalPages, setClaimTotalPages] = useState(1)
   const [claimPage, setClaimPage] = useState(1)
   const [claimSearch, setClaimSearch] = useState('')
-  const [claimDateFrom, setClaimDateFrom] = useState('')
-  const [claimDateTo, setClaimDateTo] = useState('')
+  const todayStr = getWIBToday()
+  const [claimDateFrom, setClaimDateFrom] = useState(todayStr)
+  const [claimDateTo, setClaimDateTo] = useState(todayStr)
   const [claimFilterProgram, setClaimFilterProgram] = useState('')
   const [claimFilterCrew, setClaimFilterCrew] = useState('')
   const [claimShowClaimed, setClaimShowClaimed] = useState<'unclaimed' | 'claimed' | 'all'>('unclaimed')
   const [claimsLoading, setClaimsLoading] = useState(false)
   const [claimSortField, setClaimSortField] = useState<string>('createdAt')
   const [claimSortDir, setClaimSortDir] = useState<'asc' | 'desc'>('desc')
-  const [showFilters, setShowFilters] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadResult, setUploadResult] = useState<{ totalRows: number; totalQty: number; totalSettle: number; uniqueProducts: number; duplicateRows?: number } | null>(null)
@@ -279,7 +290,7 @@ export default function Home() {
   const fetchDashboard = useCallback(async () => {
     setDashLoading(true)
     try {
-      const r = await fetch(`/api/dashboard?period=${dashPeriod}`)
+      const r = await safeFetch(`/api/dashboard?period=${dashPeriod}`)
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
       setDashboard(d)
@@ -289,14 +300,19 @@ export default function Home() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  // Fetch crews for claim form
+  // Fetch crews for claim form — staggered 300ms after dashboard
   useEffect(() => {
-    fetch('/api/crews').then(r => r.json()).then(d => {
-      if (Array.isArray(d)) setCrews(d)
-    }).catch(() => {})
+    const t = setTimeout(async () => {
+      try {
+        const r = await safeFetch('/api/crews')
+        const d = await r.json()
+        if (Array.isArray(d)) setCrews(d)
+      } catch { /* silent */ }
+    }, 300)
+    return () => clearTimeout(t)
   }, [])
 
-  // Fetch claim sales history
+  // Fetch claim sales history — staggered 600ms after mount
   const fetchClaims = useCallback(async (page: number) => {
     setClaimsLoading(true)
     try {
@@ -307,7 +323,7 @@ export default function Home() {
       if (claimFilterProgram) params.set('program', claimFilterProgram)
       if (claimFilterCrew) params.set('crewId', claimFilterCrew)
       if (claimShowClaimed !== 'all') params.set('claimed', claimShowClaimed === 'claimed' ? 'true' : 'false')
-      const r = await fetch(`/api/claims?${params}`)
+      const r = await safeFetch(`/api/claims?${params}`)
       const d = await r.json()
       setClaimSales(d.sales || [])
       setClaimTotal(d.total || 0)
@@ -320,10 +336,10 @@ export default function Home() {
 
   useEffect(() => { fetchClaims(1) }, [fetchClaims])
 
-  // Fetch programs for filter dropdown
+  // Fetch programs for filter dropdown — staggered 500ms
   const fetchPrograms = useCallback(async () => {
     try {
-      const r = await fetch('/api/claims/programs')
+      const r = await safeFetch('/api/claims/programs')
       const d = await r.json()
       if (d.programs && Array.isArray(d.programs)) setPrograms(d.programs)
     } catch { /* silent */ }
@@ -331,10 +347,10 @@ export default function Home() {
 
   useEffect(() => { fetchPrograms() }, [fetchPrograms])
 
-  // Fetch management data
+  // Fetch management data — only when admin tab is active
   const fetchManagement = useCallback(async () => {
     try {
-      const [g, c] = await Promise.all([fetch('/api/groups').then(r => r.json()), fetch('/api/crews').then(r => r.json())])
+      const [g, c] = await Promise.all([safeFetch('/api/groups').then(r => r.json()), safeFetch('/api/crews').then(r => r.json())])
       if (Array.isArray(g)) setGroups(g)
       if (Array.isArray(c)) setMgmtCrews(c)
     } catch { /* silent */ }
@@ -360,7 +376,7 @@ export default function Home() {
   const handleLogin = async () => {
     if (!loginForm.username || !loginForm.password) { toast.error('Isi username dan password'); return }
     try {
-      const r = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
+      const r = await safeFetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
       const d = await r.json()
       if (d.error) { toast.error(`${d.error} (HTTP ${r.status})${d.debug ? ' | adminCount: ' + d.debug.adminCount : ''}`); return }
       setIsAdmin(true)
@@ -369,7 +385,7 @@ export default function Home() {
   }
 
   const handleLogout = async () => {
-    await fetch('/api/auth', { method: 'DELETE' })
+    await safeFetch('/api/auth', { method: 'DELETE' })
     setIsAdmin(false)
     toast.success('Berhasil logout')
   }
@@ -391,7 +407,7 @@ export default function Home() {
     const fd = new FormData()
     fd.append('file', file)
     try {
-      const r = await fetch('/api/claims', { method: 'POST', body: fd })
+      const r = await safeFetch('/api/claims', { method: 'POST', body: fd })
       const d = await r.json()
       clearInterval(progressInterval)
       setUploadProgress(100)
@@ -435,7 +451,7 @@ export default function Home() {
     if (!crew) { toast.error('Crew tidak ditemukan'); return }
     setClaiming(true)
     try {
-      const r = await fetch('/api/claims', {
+      const r = await safeFetch('/api/claims', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ saleIds: Array.from(selectedSaleIds), crewId: crew.id })
@@ -500,7 +516,7 @@ export default function Home() {
 
   const handleUnclaimSale = async (saleId: string) => {
     try {
-      const r = await fetch('/api/claims/unclaim', {
+      const r = await safeFetch('/api/claims/unclaim', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ saleIds: [saleId] })
@@ -610,7 +626,7 @@ export default function Home() {
     try {
       const method = editGroup ? 'PUT' : 'POST'
       const body = editGroup ? { id: editGroup.id, ...data } : data
-      const r = await fetch('/api/groups', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const r = await safeFetch('/api/groups', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
       toast.success(editGroup ? 'Group diperbarui' : 'Group ditambahkan')
@@ -915,8 +931,13 @@ export default function Home() {
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
-                            <Trophy className="w-5 h-5 text-amber-500" />
-                            <CardTitle className="text-base bg-gradient-to-r from-amber-600 to-emerald-600 dark:from-amber-400 dark:to-emerald-400 bg-clip-text text-transparent">Top Crew Leaderboard</CardTitle>
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shadow-amber-500/20">
+                              <Trophy className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <CardTitle className="text-base leading-tight">Top Crew Leaderboard</CardTitle>
+                              <p className="text-[10px] text-muted-foreground">Peringkat kru berdasarkan total penjualan</p>
+                            </div>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fetchDashboard()} title="Refresh">
@@ -950,108 +971,263 @@ export default function Home() {
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex items-end justify-center gap-3 sm:gap-6 pb-4">
-                            {[1, 0, 2].map((rank) => {
-                              const crew = dashboard.topCrews[rank]
-                              if (!crew) return null
-                              const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
-                              const isFirst = rank === 0
-                              const heights = ['h-28 sm:h-36', 'h-36 sm:h-48', 'h-24 sm:h-32']
-                              const medals = [
-                                <span key="1" className="text-2xl sm:text-3xl">🥇</span>,
-                                <span key="0" className="text-3xl sm:text-4xl">👑</span>,
-                                <span key="2" className="text-2xl sm:text-3xl">🥉</span>,
-                              ]
-                              const colors = [
-                                'from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800',
-                                'from-amber-300 to-amber-500 dark:from-amber-600 dark:to-amber-800',
-                                'from-orange-200 to-orange-400 dark:from-orange-700 dark:to-orange-900',
-                              ]
-                              return (
-                                <motion.div key={crew.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: rank * 0.15, type: 'spring', stiffness: 200 }}
-                                  className="flex flex-col items-center">
-                                  <Avatar className={`w-12 h-12 sm:w-16 sm:h-16 border-2 border-white dark:border-gray-700 shadow-md ${isFirst ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}>
-                                    <AvatarImage src={crew.photo || ''} />
-                                    <AvatarFallback className="bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold text-sm">
-                                      {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <p className="mt-1.5 text-xs sm:text-sm font-semibold text-center max-w-[100px] truncate">{crew.name}</p>
-                                  <p className="text-xs text-muted-foreground">{crew.groupName}</p>
-                                  <div className={`w-20 sm:w-28 ${heights[rank]} mt-2 rounded-t-xl bg-gradient-to-t ${colors[rank]} flex flex-col items-center justify-end pb-3 shadow-lg`}>
-                                    {medals[rank]}
-                                    <p className="text-[10px] sm:text-xs font-bold mt-1">{fmtRp(periodVal)}</p>
-                                  </div>
-                                  <Badge variant="outline" className="mt-1 text-[10px]">#{rank + 1}</Badge>
-                                </motion.div>
-                              )
-                            })}
+                          <>
+                          {/* Podium Section */}
+                          <div className="relative mb-6">
+                            {/* Background glow with emerald accent */}
+                            <div className="absolute inset-0 bg-gradient-to-b from-amber-100/40 via-emerald-50/20 to-transparent dark:from-amber-900/10 dark:via-emerald-950/10 rounded-xl pointer-events-none" />
+
+                            {/* Podium base / floor line */}
+                            <div className="relative flex items-end justify-center gap-2 sm:gap-4 pt-2 pb-0">
+                              {/* ─── 2nd Place ─── */}
+                              {dashboard.topCrews[1] && (() => {
+                                const crew = dashboard.topCrews[1]
+                                const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
+                                const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                return (
+                                  <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, type: 'spring', stiffness: 180 }}
+                                    className="flex flex-col items-center flex-1 max-w-[150px]">
+                                    {/* Avatar + rank badge */}
+                                    <div className="relative mb-1.5">
+                                      <Avatar className="w-11 h-11 sm:w-14 sm:h-14 border-2 border-gray-300 dark:border-gray-600 shadow-md">
+                                        <AvatarImage src={crew.photo || ''} />
+                                        <AvatarFallback className="bg-gradient-to-br from-gray-300 to-gray-500 dark:from-gray-600 dark:to-gray-800 text-white font-bold text-xs sm:text-sm">
+                                          {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      {/* Rank number badge */}
+                                      <span className="absolute -top-2.5 -right-2.5 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 dark:from-gray-500 dark:to-gray-700 flex items-center justify-center text-white font-black text-xs sm:text-sm shadow-md border-2 border-white dark:border-gray-800">2</span>
+                                    </div>
+                                    <p className="text-[11px] sm:text-xs font-semibold text-center max-w-[110px] truncate leading-tight">{crew.name}</p>
+                                    <p className="text-[10px] text-muted-foreground mb-1.5">{crew.groupName}</p>
+                                    {/* Podium platform */}
+                                    <div className="w-full max-w-[110px] h-28 sm:h-40 rounded-t-xl bg-gradient-to-t from-gray-300 via-gray-200 to-gray-100 dark:from-gray-700 dark:via-gray-600 dark:to-gray-500 flex flex-col items-center justify-between pt-2.5 pb-2 shadow-lg relative overflow-hidden">
+                                      <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
+                                      {/* Juara label */}
+                                      <span className="relative z-10 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-300 bg-gray-200/70 dark:bg-gray-700/60 px-2 py-0.5 rounded-full">Juara 2</span>
+                                      <div className="relative z-10 flex flex-col items-center">
+                                        <span className="text-[10px] sm:text-xs font-bold text-gray-700 dark:text-gray-200">{fmtRp(periodVal)}</span>
+                                        <span className="text-[9px] text-gray-500 dark:text-gray-400">{fmtNum(periodQty)} qty</span>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                )
+                              })()}
+
+                              {/* ─── 1st Place (center, tallest) ─── */}
+                              {dashboard.topCrews[0] && (() => {
+                                const crew = dashboard.topCrews[0]
+                                const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
+                                const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                return (
+                                  <motion.div initial={{ opacity: 0, scale: 0.8, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ delay: 0.1, type: 'spring', stiffness: 150, damping: 12 }}
+                                    className="flex flex-col items-center flex-1 max-w-[170px]">
+                                    {/* Crown bounce */}
+                                    <motion.div animate={{ y: [0, -3, 0] }} transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }} className="mb-0.5">
+                                      <span className="text-2xl sm:text-3xl">👑</span>
+                                    </motion.div>
+                                    {/* Avatar with rank badge */}
+                                    <div className="relative mb-1.5">
+                                      <Avatar className="w-14 h-14 sm:w-18 sm:h-18 border-[3px] border-amber-400 shadow-lg shadow-amber-500/30 ring-2 ring-amber-200/50 dark:ring-amber-600/30 ring-offset-2 ring-offset-background">
+                                        <AvatarImage src={crew.photo || ''} />
+                                        <AvatarFallback className="bg-gradient-to-br from-amber-400 to-orange-500 text-white font-bold text-sm sm:text-base">
+                                          {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      {/* Rank number badge – gold */}
+                                      <span className="absolute -top-2.5 -right-2.5 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-amber-300 via-yellow-400 to-amber-500 flex items-center justify-center text-amber-900 dark:text-amber-100 font-black text-sm sm:text-base shadow-lg shadow-amber-500/40 border-2 border-amber-200 dark:border-amber-700">1</span>
+                                      {/* Sparkle effect */}
+                                      <motion.span className="absolute -top-1 -left-1 text-xs" animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 0.5] }} transition={{ duration: 1.5, repeat: Infinity }}>✨</motion.span>
+                                      <motion.span className="absolute -bottom-0.5 -right-1 text-[10px]" animate={{ opacity: [0, 1, 0], scale: [0.5, 1, 0.5] }} transition={{ duration: 1.8, repeat: Infinity, delay: 0.7 }}>✨</motion.span>
+                                    </div>
+                                    <p className="text-xs sm:text-sm font-bold text-center max-w-[130px] truncate leading-tight text-amber-700 dark:text-amber-400">{crew.name}</p>
+                                    <p className="text-[10px] text-muted-foreground mb-1.5">{crew.groupName}</p>
+                                    {/* Podium platform – tallest */}
+                                    <div className="w-full max-w-[130px] h-40 sm:h-56 rounded-t-xl bg-gradient-to-t from-amber-600 via-amber-400 to-yellow-300 dark:from-amber-700 dark:via-amber-500 dark:to-yellow-600 flex flex-col items-center justify-between pt-3 pb-3 shadow-xl shadow-amber-500/20 relative overflow-hidden">
+                                      <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent pointer-events-none" />
+                                      {/* Emerald-accented Juara 1 label */}
+                                      <span className="relative z-10 text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-200 bg-white/70 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full shadow-sm">Juara 1</span>
+                                      <div className="relative z-10 flex flex-col items-center">
+                                        <span className="text-xs sm:text-sm font-bold text-white drop-shadow">{fmtRp(periodVal)}</span>
+                                        <span className="text-[9px] text-amber-100">{fmtNum(periodQty)} qty</span>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                )
+                              })()}
+
+                              {/* ─── 3rd Place ─── */}
+                              {dashboard.topCrews[2] && (() => {
+                                const crew = dashboard.topCrews[2]
+                                const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
+                                const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                return (
+                                  <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, type: 'spring', stiffness: 180 }}
+                                    className="flex flex-col items-center flex-1 max-w-[150px]">
+                                    {/* Avatar + rank badge */}
+                                    <div className="relative mb-1.5">
+                                      <Avatar className="w-11 h-11 sm:w-14 sm:h-14 border-2 border-orange-300 dark:border-orange-700 shadow-md">
+                                        <AvatarImage src={crew.photo || ''} />
+                                        <AvatarFallback className="bg-gradient-to-br from-orange-300 to-orange-500 dark:from-orange-700 dark:to-orange-900 text-white font-bold text-xs sm:text-sm">
+                                          {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      {/* Rank number badge */}
+                                      <span className="absolute -top-2.5 -right-2.5 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 dark:from-orange-600 dark:to-orange-800 flex items-center justify-center text-white font-black text-xs sm:text-sm shadow-md border-2 border-white dark:border-orange-900">3</span>
+                                    </div>
+                                    <p className="text-[11px] sm:text-xs font-semibold text-center max-w-[110px] truncate leading-tight">{crew.name}</p>
+                                    <p className="text-[10px] text-muted-foreground mb-1.5">{crew.groupName}</p>
+                                    {/* Podium platform */}
+                                    <div className="w-full max-w-[110px] h-20 sm:h-32 rounded-t-xl bg-gradient-to-t from-orange-400 via-orange-300 to-orange-100 dark:from-orange-800 dark:via-orange-600 dark:to-orange-400 flex flex-col items-center justify-between pt-2.5 pb-2 shadow-lg relative overflow-hidden">
+                                      <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
+                                      {/* Juara label */}
+                                      <span className="relative z-10 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-200 bg-orange-100/70 dark:bg-orange-900/50 px-2 py-0.5 rounded-full">Juara 3</span>
+                                      <div className="relative z-10 flex flex-col items-center">
+                                        <span className="text-[10px] sm:text-xs font-bold text-orange-800 dark:text-orange-100">{fmtRp(periodVal)}</span>
+                                        <span className="text-[9px] text-orange-600 dark:text-orange-300">{fmtNum(periodQty)} qty</span>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                )
+                              })()}
+                            </div>
+
+                            {/* Shared podium floor */}
+                            <div className="mx-2 sm:mx-4 h-2 rounded-b-xl bg-gradient-to-r from-gray-300 via-amber-400 to-orange-300 dark:from-gray-700 dark:via-amber-600 dark:to-orange-600 opacity-60" />
                           </div>
+
+                          {/* Performance highlight bar for top crew */}
+                          {dashboard.topCrews[0] && (() => {
+                            const topCrew = dashboard.topCrews[0]
+                            const periodVal = dashPeriod === 'today' ? topCrew.todayTotal : dashPeriod === 'week' ? topCrew.weekTotal : topCrew.monthTotal
+                            const totalAllCrews = dashboard.crewStats.reduce((s, c) => s + (dashPeriod === 'today' ? c.todayTotal : dashPeriod === 'week' ? c.weekTotal : c.monthTotal), 0)
+                            const sharePct = totalAllCrews > 0 ? Math.round((periodVal / totalAllCrews) * 100) : 0
+                            return (
+                              <div className="mb-4 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 border border-amber-200/50 dark:border-amber-800/30">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <span className="text-sm">🏆</span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                                      <span className="font-bold">{topCrew.name}</span> memimpin dengan kontribusi <span className="font-bold">{sharePct}%</span> dari total penjualan
+                                    </p>
+                                    <div className="mt-1.5 h-2 bg-amber-200/50 dark:bg-amber-900/30 rounded-full overflow-hidden">
+                                      <motion.div initial={{ width: 0 }} animate={{ width: `${sharePct}%` }} transition={{ duration: 1, ease: 'easeOut', delay: 0.5 }}
+                                        className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-sm" />
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-sm font-bold text-amber-700 dark:text-amber-400">{fmtRp(periodVal)}</p>
+                                    <p className="text-[10px] text-amber-600/70 dark:text-amber-500/70">dari {fmtRp(totalAllCrews)}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })()}
+                          </>
                         )}
 
                         {/* Full Ranking Table */}
                         {dashboard.crewStats.length > 0 && (
-                          <div className="mt-4 border-t pt-4">
+                          <div className="border-t pt-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Full Ranking</p>
+                              <p className="text-[10px] text-muted-foreground">{dashboard.crewStats.length} crew</p>
+                            </div>
                             {/* Mobile Card View */}
-                            <div className="md:hidden max-h-64 overflow-y-auto space-y-2">
+                            <div className="md:hidden max-h-80 overflow-y-auto space-y-2 pr-1">
                               {dashboard.crewStats.map((crew, idx) => {
                                 const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                 const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
+                                const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
+                                const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
                                 return (
-                                  <div key={crew.id} className={`p-3 rounded-lg border ${idx < 3 ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-800/30' : 'bg-white dark:bg-gray-900'}`}>
+                                  <motion.div key={crew.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }}
+                                    className={`p-3 rounded-xl border transition-colors cursor-pointer ${idx < 3 ? 'bg-gradient-to-r from-amber-50/80 to-transparent dark:from-amber-950/20 border-amber-200/40 dark:border-amber-800/20' : 'bg-white dark:bg-gray-900 border-transparent hover:border-border'}`}
+                                    onClick={() => setSelectedCrewDetail(crew)}>
                                     <div className="flex items-center gap-2.5">
-                                      <span className="text-sm font-bold text-muted-foreground w-5 text-center">{idx + 1}</span>
-                                      <Avatar className="w-8 h-8">
+                                      <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold">
+                                        {rankMedal ? <span>{rankMedal}</span> : <span className="text-muted-foreground">{idx + 1}</span>}
+                                      </div>
+                                      <Avatar className="w-8 h-8 shrink-0">
                                         <AvatarImage src={crew.photo || ''} />
-                                        <AvatarFallback className="text-xs bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">
+                                        <AvatarFallback className="text-[10px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">
                                           {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                                         </AvatarFallback>
                                       </Avatar>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium truncate">{crew.name}</p>
-                                        <p className="text-[11px] text-muted-foreground">{crew.groupName} • Qty: {fmtNum(periodQty)}</p>
+                                        <p className="text-xs font-semibold truncate">{crew.name}</p>
+                                        <p className="text-[10px] text-muted-foreground">{crew.groupName}</p>
+                                        {/* Progress bar */}
+                                        <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                          <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
+                                            className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : idx === 2 ? 'bg-gradient-to-r from-orange-300 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-emerald-500'}`} />
+                                        </div>
                                       </div>
-                                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{fmtRp(periodVal)}</span>
+                                      <div className="text-right shrink-0 pl-2">
+                                        <p className={`text-xs font-bold ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{fmtRp(periodVal)}</p>
+                                        <p className="text-[10px] text-muted-foreground">{fmtNum(periodQty)} qty</p>
+                                      </div>
                                     </div>
-                                  </div>
+                                  </motion.div>
                                 )
                               })}
                             </div>
                             {/* Desktop Table View */}
-                            <div className="hidden md:block max-h-64 overflow-y-auto">
+                            <div className="hidden md:block max-h-80 overflow-y-auto">
                               <Table className="table-stripe table-sticky-head">
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent">
-                                    <TableHead className="w-10">#</TableHead>
+                                    <TableHead className="w-12 text-center">#</TableHead>
                                     <TableHead>Crew</TableHead>
                                     <TableHead>Group</TableHead>
+                                    <TableHead className="text-center">Qty</TableHead>
+                                    <TableHead className="w-[200px]">Kontribusi</TableHead>
                                     <TableHead className="text-right">Penjualan</TableHead>
-                                    <TableHead className="text-right">Qty</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {dashboard.crewStats.map((crew, idx) => {
                                     const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                     const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                    const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
+                                    const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
+                                    const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
                                     return (
-                                      <TableRow key={crew.id} className={idx < 3 ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : ''}>
-                                        <TableCell className="font-bold text-muted-foreground">{idx + 1}</TableCell>
+                                      <TableRow key={crew.id} className={`cursor-pointer transition-colors ${idx < 3 ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-100/40 dark:hover:bg-amber-950/20' : ''}`} onClick={() => setSelectedCrewDetail(crew)}>
+                                        <TableCell className="text-center font-bold">
+                                          {rankMedal ? <span className="text-base">{rankMedal}</span> : <span className="text-muted-foreground">{idx + 1}</span>}
+                                        </TableCell>
                                         <TableCell>
-                                          <div className="flex items-center gap-2">
-                                            <Avatar className="w-8 h-8">
+                                          <div className="flex items-center gap-2.5">
+                                            <Avatar className={`w-8 h-8 ${idx === 0 ? 'ring-1 ring-amber-400' : ''}`}>
                                               <AvatarImage src={crew.photo || ''} />
                                               <AvatarFallback className="text-xs bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">
                                                 {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                                               </AvatarFallback>
                                             </Avatar>
-                                            <p className="font-medium text-sm cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" onClick={() => setSelectedCrewDetail(crew)}>{crew.name}</p>
+                                            <div>
+                                              <p className="font-medium text-sm leading-tight">{crew.name}</p>
+                                              <p className="text-[10px] text-muted-foreground">{crew.employeeId}</p>
+                                            </div>
                                           </div>
                                         </TableCell>
                                         <TableCell>
-                                          <Badge variant="outline" className="text-xs">{crew.groupName}</Badge>
+                                          <Badge variant="outline" className="text-[10px] font-normal">{crew.groupName}</Badge>
                                         </TableCell>
-                                        <TableCell className="text-right font-semibold">{fmtRp(periodVal)}</TableCell>
-                                        <TableCell className="text-right text-muted-foreground">{fmtNum(periodQty)}</TableCell>
+                                        <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodQty)}</TableCell>
+                                        <TableCell>
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                              <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
+                                                className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : idx === 2 ? 'bg-gradient-to-r from-orange-300 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`} />
+                                            </div>
+                                            <span className="text-[10px] text-muted-foreground tabular-nums w-8 text-right">{pct}%</span>
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                          <span className={`font-semibold tabular-nums ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : ''}`}>{fmtRp(periodVal)}</span>
+                                        </TableCell>
                                       </TableRow>
                                     )
                                   })}
@@ -1489,9 +1665,6 @@ export default function Home() {
                             <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md shadow-emerald-500/20" onClick={() => setShowUploadModal(true)}>
                               <UploadCloud className="w-3.5 h-3.5" /> Upload
                             </Button>
-                            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setShowFilters(!showFilters)}>
-                              <Filter className="w-3.5 h-3.5" /> Filter
-                            </Button>
                             <Button variant="outline" size="sm" className="h-8 gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30" onClick={handleExport}>
                               <Download className="w-3.5 h-3.5" /> Export CSV
                             </Button>
@@ -1557,24 +1730,19 @@ export default function Home() {
                           </Select>
                         </div>
 
-                        {/* Expandable date filters */}
-                        <AnimatePresence>
-                          {showFilters && (
-                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                              <div className="flex flex-wrap items-center gap-2 p-3 rounded-lg bg-muted/50 border">
-                                <div className="flex items-center gap-1.5">
-                                  <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                                  <Input type="date" value={claimDateFrom} onChange={e => setClaimDateFrom(e.target.value)} className="h-8 w-[140px] text-xs" />
-                                  <span className="text-xs text-muted-foreground">s/d</span>
-                                  <Input type="date" value={claimDateTo} onChange={e => setClaimDateTo(e.target.value)} className="h-8 w-[140px] text-xs" />
-                                </div>
-                                <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}>
-                                  Reset
-                                </Button>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                        {/* Date filter — default today */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted/50 border">
+                            <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide hidden sm:inline">Tanggal</span>
+                            <Input type="date" value={claimDateFrom} onChange={e => setClaimDateFrom(e.target.value)} className="h-7 w-[130px] text-xs border-0 shadow-none p-0" />
+                            <span className="text-xs text-muted-foreground">–</span>
+                            <Input type="date" value={claimDateTo} onChange={e => setClaimDateTo(e.target.value)} className="h-7 w-[130px] text-xs border-0 shadow-none p-0" />
+                            <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Reset tanggal" onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>

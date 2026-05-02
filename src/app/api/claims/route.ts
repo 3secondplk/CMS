@@ -75,9 +75,6 @@ export async function POST(request: NextRequest) {
       pembayaran: string; program: string; channelStock: string
     }[] = []
 
-    // Track unique keys for in-file dedup (tanggal + kodeExtend = unique row)
-    const inFileKeys = new Set<string>()
-
     for (const row of dataRows) {
       const tanggal = String(row['Tanggal'] || '')
       const idPenjualan = String(row['ID Penjualan'] || '')
@@ -106,11 +103,6 @@ export async function POST(request: NextRequest) {
       // Skip rows where Settle is 0 or empty
       if (!settle || settle <= 0) continue
 
-      // ── In-file dedup: skip if same tanggal + kodeExtend already seen in this file ──
-      const dedupKey = `${tanggal}|||${kodeExtend}`
-      if (inFileKeys.has(dedupKey)) continue
-      inFileKeys.add(dedupKey)
-
       salesData.push({ tanggal, idPenjualan, statusRetention, retentionCode, kodeExtend, brand, dept, modul, ukuran, qty, hjp, netto, diskon, diskonRp, potongan, potonganV, settle, pembayaran, program, channelStock })
       if (kodeExtend) uniqueProducts.add(kodeExtend)
       totalQty += qty
@@ -124,32 +116,85 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Cross-DB deduplication: check against existing database records ──
-    // CORR-01 FIX: Use OR with exact pair matching instead of Cartesian product
-    // Old (WRONG): WHERE tanggal IN (...) AND kodeExtend IN (...) — matches ANY combination
-    // New (CORRECT): WHERE (tanggal=X AND kodeExtend=Y) OR (tanggal=A AND kodeExtend=B) ...
-    const dedupKeys = salesData.map(item => ({
-      tanggal: item.tanggal,
-      kodeExtend: item.kodeExtend,
-    }))
+    // ── Cross-DB deduplication (DEDUP v5) ──
+    // idPenjualan = transaction/receipt ID from POS system
+    // Multiple items in the same transaction share the same idPenjualan
+    // Same product can appear multiple times (customer buys 3x of same item)
+    // → Dedup at TRANSACTION level: if idPenjualan exists in DB, skip ALL rows for that transaction
+    // → NO in-file dedup: all rows from Excel are legitimate, even if they look identical
+    let newSalesData: typeof salesData = []
+    let duplicateCount = 0
 
-    // Batch in chunks of 100 to avoid Prisma/SQLite query limits
-    const CHUNK_SIZE = 100
-    const existingKeys = new Set<string>()
-    for (let i = 0; i < dedupKeys.length; i += CHUNK_SIZE) {
-      const chunk = dedupKeys.slice(i, i + CHUNK_SIZE)
-      const chunkResults = await db.sale.findMany({
-        where: { OR: chunk },
-        select: { tanggal: true, kodeExtend: true },
-      })
-      for (const r of chunkResults) {
-        existingKeys.add(`${r.tanggal}|||${r.kodeExtend}`)
+    // Step 1: Separate rows with and without idPenjualan
+    const withIdPenjualan = salesData.filter(s => s.idPenjualan)
+    const withoutIdPenjualan = salesData.filter(s => !s.idPenjualan)
+
+    // Step 2: For rows WITH idPenjualan → dedup at transaction level
+    // idPenjualan is the receipt/transaction ID — same for ALL items in one struk
+    // If this transaction is already in DB, skip ALL its rows
+    const existingIdPenjualans = new Set<string>()
+    if (withIdPenjualan.length > 0) {
+      const uniqueIds = [...new Set(withIdPenjualan.map(s => s.idPenjualan))]
+      const CHUNK_SIZE = 100
+      for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+        const chunk = uniqueIds.slice(i, i + CHUNK_SIZE)
+        const results = await db.sale.findMany({
+          where: { idPenjualan: { in: chunk } },
+          select: { idPenjualan: true },
+        })
+        for (const r of results) {
+          existingIdPenjualans.add(r.idPenjualan)
+        }
       }
+      // Keep only rows whose idPenjualan does NOT exist in DB
+      const idPenjualanKeep = withIdPenjualan.filter(s => !existingIdPenjualans.has(s.idPenjualan))
+      duplicateCount += withIdPenjualan.length - idPenjualanKeep.length
+      newSalesData.push(...idPenjualanKeep)
     }
 
-    // Filter out rows that already exist in database
-    const newSalesData = salesData.filter(item => !existingKeys.has(`${item.tanggal}|||${item.kodeExtend}`))
-    const duplicateCount = salesData.length - newSalesData.length
+    // Step 3: For rows WITHOUT idPenjualan → count-based dedup using (tanggal, kodeExtend)
+    // Count occurrences of each (tanggal, kodeExtend) in import
+    // Compare with DB count → only import the excess
+    if (withoutIdPenjualan.length > 0) {
+      const importCounts = new Map<string, number>()
+      for (const s of withoutIdPenjualan) {
+        const key = `${s.tanggal}|||${s.kodeExtend}`
+        importCounts.set(key, (importCounts.get(key) || 0) + 1)
+      }
+
+      // Get DB counts for each (tanggal, kodeExtend) combination
+      const uniqueKeys = [...importCounts.keys()]
+      const dbCounts = new Map<string, number>()
+      const CHUNK_SIZE = 50
+      for (let i = 0; i < uniqueKeys.length; i += CHUNK_SIZE) {
+        const chunk = uniqueKeys.slice(i, i + CHUNK_SIZE)
+        for (const key of chunk) {
+          const [tanggal, kodeExtend] = key.split('|||')
+          const count = await db.sale.count({
+            where: { tanggal, kodeExtend, idPenjualan: null },
+          })
+          dbCounts.set(key, count)
+        }
+      }
+
+      // Build rows to keep: for each (tanggal, kodeExtend), import (importCount - dbCount) rows
+      const keptWithoutId: typeof withoutIdPenjualan = []
+      const keyUsageCount = new Map<string, number>()
+      for (const s of withoutIdPenjualan) {
+        const key = `${s.tanggal}|||${s.kodeExtend}`
+        const importCount = importCounts.get(key) || 0
+        const dbCount = dbCounts.get(key) || 0
+        const used = keyUsageCount.get(key) || 0
+
+        if (used < Math.max(0, importCount - dbCount)) {
+          keptWithoutId.push(s)
+          keyUsageCount.set(key, used + 1)
+        } else {
+          duplicateCount++
+        }
+      }
+      newSalesData.push(...keptWithoutId)
+    }
 
     // Recalculate stats for only the new (non-duplicate) rows
     let newTotalQty = 0
