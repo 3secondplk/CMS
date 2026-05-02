@@ -1236,11 +1236,11 @@ export default function Home() {
                               <motion.div key={sale.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                                 className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
                                 <Avatar className="w-8 h-8">
-                                  <AvatarImage src={sale.crew.photo || ''} />
-                                  <AvatarFallback className="text-xs">{sale.crew.name[0]}</AvatarFallback>
+                                  <AvatarImage src={sale.crew?.photo || ''} />
+                                  <AvatarFallback className="text-xs">{(sale.crew?.name || '?')[0]}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{sale.crew.name}</p>
+                                  <p className="text-sm font-medium truncate">{sale.crew?.name || 'Unknown'}</p>
                                   <p className="text-xs text-muted-foreground truncate">{sale.kodeExtend} • {sale.tanggal}</p>
                                 </div>
                                 <div className="text-right">
@@ -1764,8 +1764,8 @@ export default function Home() {
                                         <div className="flex items-center gap-1.5">
                                           <div className="relative">
                                             <Avatar className="w-6 h-6">
-                                              <AvatarImage src={sale.crew.photo || ''} />
-                                              <AvatarFallback className="text-[9px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">{sale.crew.name[0]}</AvatarFallback>
+                                              <AvatarImage src={sale.crew?.photo || ''} />
+                                              <AvatarFallback className="text-[9px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">{(sale.crew?.name || '?')[0]}</AvatarFallback>
                                             </Avatar>
                                             {/* Green dot for recently claimed (within 2 minutes) */}
                                             {sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) && (
@@ -1773,7 +1773,7 @@ export default function Home() {
                                             )}
                                           </div>
                                           <div className="flex flex-col min-w-0">
-                                            <span className="text-xs truncate max-w-[120px] font-medium">{sale.crew.name}</span>
+                                            <span className="text-xs truncate max-w-[120px] font-medium">{sale.crew?.name || 'Unknown'}</span>
                                             {sale.claimedAt && (
                                               <span className="text-[9px] text-muted-foreground">
                                                 {(() => {

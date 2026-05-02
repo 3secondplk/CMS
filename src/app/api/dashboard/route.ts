@@ -243,6 +243,7 @@ export async function GET(request: NextRequest) {
     // Recent activity (last 10 sales)
     const recentSales = await db.sale.findMany({
       take: 10,
+      where: { crewId: { not: null } },
       include: {
         crew: {
           select: { name: true, photo: true, group: { select: { name: true } } },
