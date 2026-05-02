@@ -53,6 +53,21 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = crypto.createHash('sha256').update(password).digest('hex')
 
+    // AUTO-SETUP: Jika tabel Admin kosong, buat admin pertama kali
+    const adminCount = await db.admin.count()
+    if (adminCount === 0) {
+      const defaultHash = crypto.createHash('sha256').update('admin123').digest('hex')
+      if (hashedPassword === defaultHash) {
+        await db.admin.create({
+          data: {
+            username: 'admin',
+            password: defaultHash,
+            name: 'Administrator',
+          },
+        })
+      }
+    }
+
     const admin = await db.admin.findUnique({
       where: { username },
     })
