@@ -2246,7 +2246,7 @@ export default function Home() {
               variant="destructive"
               disabled={batchDeleting}
               onClick={async () => {
-                if (!deleteConfirm) return
+                if (!deleteConfirm || !deleteConfirm.id) return
                 if (deleteConfirm.type === 'crew') await handleDeleteCrew(deleteConfirm.id)
                 else if (deleteConfirm.type === 'group') await handleDeleteGroup(deleteConfirm.id)
                 else if (deleteConfirm.type === 'sale') await handleDeleteSale(deleteConfirm.id)
