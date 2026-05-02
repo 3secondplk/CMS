@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
           select: { idPenjualan: true },
         })
         for (const r of results) {
-          existingIdPenjualans.add(r.idPenjualan)
+          if (r.idPenjualan) existingIdPenjualans.add(r.idPenjualan)
         }
       }
       // Keep only rows whose idPenjualan does NOT exist in DB
