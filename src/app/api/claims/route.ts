@@ -255,7 +255,7 @@ export async function GET(request: NextRequest) {
 
     // Search across kodeExtend, brand, dept, and crew name (PG-01: case-insensitive for PostgreSQL)
     if (search) {
-      const searchConditions = [
+      const searchConditions: Record<string, any>[] = [
         { kodeExtend: { contains: search, mode: 'insensitive' } },
         { brand: { contains: search, mode: 'insensitive' } },
         { dept: { contains: search, mode: 'insensitive' } },
