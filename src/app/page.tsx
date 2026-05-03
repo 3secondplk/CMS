@@ -1688,140 +1688,171 @@ export default function Home() {
                           </>
                         )}
 
-                        {/* Full Ranking Table */}
-                        {dashboard.crewStats.length > 0 && (
-                          <div className="border-t pt-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Full Ranking</p>
-                              <p className="text-[10px] text-muted-foreground">{dashboard.crewStats.length} crew</p>
-                            </div>
-                            {/* Mobile Card View */}
-                            <div className="md:hidden max-h-80 overflow-y-auto space-y-2 pr-1">
-                              {dashboard.crewStats.map((crew, idx) => {
-                                const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
-                                const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
-                                const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
-                                const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
-                                const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
-                                const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
-                                return (
-                                  <motion.div key={crew.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }}
-                                    className={`p-3 rounded-xl border transition-colors cursor-pointer ${idx < 3 ? 'bg-gradient-to-r from-amber-50/80 to-transparent dark:from-amber-950/20 border-amber-200/40 dark:border-amber-800/20' : 'bg-white dark:bg-gray-900 border-transparent hover:border-border'}`}
-                                    onClick={() => setSelectedCrewDetail(crew)}>
-                                    <div className="flex items-center gap-2.5">
-                                      <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold">
-                                        {rankMedal ? <span>{rankMedal}</span> : <span className="text-muted-foreground">{idx + 1}</span>}
-                                      </div>
-                                      <Avatar className="w-8 h-8 shrink-0">
-                                        <AvatarImage src={crew.photo || ''} />
-                                        <AvatarFallback className="text-[10px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">
-                                          {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-semibold truncate">{crew.name}</p>
-                                        <p className="text-[10px] text-muted-foreground">{crew.groupName}</p>
-                                        {/* Progress bar */}
-                                        <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                                          <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
-                                            className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : idx === 2 ? 'bg-gradient-to-r from-orange-300 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-emerald-500'}`} />
-                                        </div>
-                                      </div>
-                                      <div className="text-right shrink-0 pl-2">
-                                        <p className={`text-xs font-bold ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{fmtRp(periodVal)}</p>
-                                        <p className="text-[10px] text-muted-foreground">{fmtNum(periodStruk)} struk · {fmtNum(periodQty)} qty</p>
-                                        {crew.crewMonthlyTarget > 0 && (
-                                          <Badge variant="outline" className={`text-[9px] mt-0.5 px-1.5 py-0 border-0 ${getAchievementColor(crew.weeklyAchievement).bg} ${getAchievementColor(crew.weeklyAchievement).text}`}>
-                                            🎯 {Math.round(crew.weeklyAchievement)}%
-                                          </Badge>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </motion.div>
-                                )
-                              })}
-                            </div>
-                            {/* Desktop Table View */}
-                            <div className="hidden md:block max-h-80 overflow-y-auto">
-                              <Table className="table-stripe table-sticky-head table-row-hover">
-                                <TableHeader>
-                                  <TableRow className="hover:bg-transparent">
-                                    <TableHead className="w-12 text-center">#</TableHead>
-                                    <TableHead>Crew</TableHead>
-                                    <TableHead>Group</TableHead>
-                                    <TableHead className="text-center">Struk</TableHead>
-                                    <TableHead className="text-center">Qty</TableHead>
-                                    <TableHead className="w-[200px]">Kontribusi</TableHead>
-                                    <TableHead className="w-[100px] text-center">Target</TableHead>
-                                    <TableHead className="text-right">Penjualan</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {dashboard.crewStats.map((crew, idx) => {
-                                    const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
-                                    const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
-                                    const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
-                                    const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
-                                    const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
-                                    const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
-                                    return (
-                                      <TableRow key={crew.id} className={`cursor-pointer transition-colors ${idx < 3 ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-100/40 dark:hover:bg-amber-950/20' : ''}`} onClick={() => setSelectedCrewDetail(crew)}>
-                                        <TableCell className="text-center font-bold">
-                                          {rankMedal ? <span className="text-base">{rankMedal}</span> : <span className="text-muted-foreground">{idx + 1}</span>}
-                                        </TableCell>
-                                        <TableCell>
-                                          <div className="flex items-center gap-2.5">
-                                            <Avatar className={`w-8 h-8 ${idx === 0 ? 'ring-1 ring-amber-400' : ''}`}>
-                                              <AvatarImage src={crew.photo || ''} />
-                                              <AvatarFallback className="text-xs bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">
-                                                {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                              </AvatarFallback>
-                                            </Avatar>
-                                            <div>
-                                              <p className="font-medium text-sm leading-tight">{crew.name}</p>
-                                              <p className="text-[10px] text-muted-foreground">{crew.employeeId}</p>
-                                            </div>
-                                          </div>
-                                        </TableCell>
-                                        <TableCell>
-                                          <Badge variant="outline" className="text-[10px] font-normal">{crew.groupName}</Badge>
-                                        </TableCell>
-                                        <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodStruk)}</TableCell>
-                                        <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodQty)}</TableCell>
-                                        <TableCell>
-                                          <div className="flex items-center gap-2">
-                                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                                              <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
-                                                className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : idx === 2 ? 'bg-gradient-to-r from-orange-300 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`} />
-                                            </div>
-                                            <span className="text-[10px] text-muted-foreground tabular-nums w-8 text-right">{pct}%</span>
-                                          </div>
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                          {crew.crewMonthlyTarget > 0 ? (() => {
-                                            const achColor = getAchievementColor(crew.weeklyAchievement)
-                                            return (
-                                              <div className="flex flex-col items-center gap-1">
-                                                <CircularProgress value={Math.min(crew.weeklyAchievement, 999)} size={38} strokeWidth={4} />
-                                                <span className={`text-[9px] font-semibold ${achColor.text}`}>{Math.round(crew.weeklyAchievement)}%</span>
-                                              </div>
-                                            )
-                                          })() : <span className="text-[10px] text-muted-foreground">—</span>}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          <span className={`font-semibold tabular-nums ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : ''}`}>{fmtRp(periodVal)}</span>
-                                        </TableCell>
-                                      </TableRow>
-                                    )
-                                  })}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          </div>
-                        )}
                       </CardContent>
                     </Card>
                   </motion.div>
+
+                  {/* Full Ranking — Separate Card for easy scrolling */}
+                  {dashboard.crewStats.length > 0 && (
+                    <motion.div {...inViewFadeUp} transition={{ delay: 0.08 }}>
+                      <Card className="border-0 shadow-lg overflow-hidden card-hover-glow">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                                <Medal className="w-4 h-4 text-white" />
+                              </div>
+                              <div>
+                                <CardTitle className="text-base leading-tight">Full Ranking Crew</CardTitle>
+                                <p className="text-[10px] text-muted-foreground">Klik crew untuk lihat detail target & pencapaian</p>
+                              </div>
+                            </div>
+                            <Badge variant="outline" className="text-[10px]">{dashboard.crewStats.length} crew</Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="p-3 sm:p-4">
+                          {/* Mobile Card View — natural scroll, no max-height */}
+                          <div className="md:hidden space-y-2.5">
+                            {dashboard.crewStats.map((crew, idx) => {
+                              const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
+                              const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                              const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
+                              const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
+                              const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
+                              const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
+                              const achColor = crew.crewMonthlyTarget > 0 ? getAchievementColor(crew.weeklyAchievement) : null
+                              const monthlyAch = crew.crewMonthlyTarget > 0 ? Math.min(Math.round((crew.monthlyAchievement / crew.crewMonthlyTarget) * 100) || 0, 999) : 0
+                              const weeklyAch = Math.round(crew.weeklyAchievement)
+                              return (
+                                <motion.div key={crew.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }}
+                                  className={`p-3 rounded-xl border transition-colors cursor-pointer active:scale-[0.98] ${idx < 3 ? 'bg-gradient-to-r from-amber-50/80 to-transparent dark:from-amber-950/20 border-amber-200/40 dark:border-amber-800/20' : 'bg-white dark:bg-gray-900 border-border/40 hover:border-border'}`}
+                                  onClick={() => setSelectedCrewDetail(crew)}>
+                                  {/* Top row: rank, avatar, name, amount */}
+                                  <div className="flex items-center gap-2.5">
+                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${idx < 3 ? 'bg-gradient-to-br from-amber-100 to-amber-200 dark:from-amber-900 dark:to-amber-800' : 'bg-muted'}`}>
+                                      {rankMedal ? <span>{rankMedal}</span> : <span className="text-muted-foreground">{idx + 1}</span>}
+                                    </div>
+                                    <Avatar className="w-9 h-9 shrink-0">
+                                      <AvatarImage src={crew.photo || ''} />
+                                      <AvatarFallback className="text-[10px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold">
+                                        {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold truncate">{crew.name}</p>
+                                      <p className="text-[10px] text-muted-foreground">{crew.groupName} · {fmtNum(periodStruk)} struk</p>
+                                    </div>
+                                    <div className="text-right shrink-0 pl-2">
+                                      <p className={`text-sm font-bold tabular-nums ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : 'text-foreground'}`}>{fmtRp(periodVal)}</p>
+                                      <p className="text-[10px] text-muted-foreground">{fmtNum(periodQty)} qty</p>
+                                    </div>
+                                  </div>
+                                  {/* Bottom row: contribution bar + target indicator */}
+                                  <div className="mt-2.5 flex items-center gap-3">
+                                    {/* Contribution bar */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                        <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
+                                          className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : idx === 2 ? 'bg-gradient-to-r from-orange-300 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-emerald-500'}`} />
+                                      </div>
+                                    </div>
+                                    {/* Target indicator */}
+                                    {crew.crewMonthlyTarget > 0 && (
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <div className="relative w-10 h-10">
+                                          <CircularProgress value={Math.min(weeklyAch, 999)} size={40} strokeWidth={3} />
+                                          <span className={`absolute inset-0 flex items-center justify-center text-[8px] font-bold ${achColor?.text || 'text-muted-foreground'}`}>{weeklyAch}%</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              )
+                            })}
+                          </div>
+                          {/* Desktop Table View — natural scroll, no max-height */}
+                          <div className="hidden md:block">
+                            <Table className="table-stripe table-sticky-head table-row-hover">
+                              <TableHeader>
+                                <TableRow className="hover:bg-transparent">
+                                  <TableHead className="w-12 text-center">#</TableHead>
+                                  <TableHead>Crew</TableHead>
+                                  <TableHead>Group</TableHead>
+                                  <TableHead className="text-center">Struk</TableHead>
+                                  <TableHead className="text-center">Qty</TableHead>
+                                  <TableHead className="w-[180px]">Kontribusi</TableHead>
+                                  <TableHead className="w-[120px]">Target</TableHead>
+                                  <TableHead className="text-right">Penjualan</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {dashboard.crewStats.map((crew, idx) => {
+                                  const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
+                                  const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                  const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
+                                  const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
+                                  const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
+                                  const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
+                                  const weeklyAch = Math.round(crew.weeklyAchievement)
+                                  const monthlyAch = crew.crewMonthlyTarget > 0 ? Math.round((crew.monthlyAchievement / crew.crewMonthlyTarget) * 100) : 0
+                                  const achColor = crew.crewMonthlyTarget > 0 ? getAchievementColor(crew.weeklyAchievement) : null
+                                  return (
+                                    <TableRow key={crew.id} className={`cursor-pointer transition-colors ${idx < 3 ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-100/40 dark:hover:bg-amber-950/20' : ''}`} onClick={() => setSelectedCrewDetail(crew)}>
+                                      <TableCell className="text-center font-bold">
+                                        {rankMedal ? <span className="text-base">{rankMedal}</span> : <span className="text-muted-foreground">{idx + 1}</span>}
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2.5">
+                                          <Avatar className={`w-8 h-8 ${idx === 0 ? 'ring-1 ring-amber-400' : ''}`}>
+                                            <AvatarImage src={crew.photo || ''} />
+                                            <AvatarFallback className="text-xs bg-gradient-to-br from-emerald-400 to-emerald-600 text-white">
+                                              {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div>
+                                            <p className="font-medium text-sm leading-tight">{crew.name}</p>
+                                            <p className="text-[10px] text-muted-foreground">{crew.employeeId}</p>
+                                          </div>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline" className="text-[10px] font-normal">{crew.groupName}</Badge>
+                                      </TableCell>
+                                      <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodStruk)}</TableCell>
+                                      <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodQty)}</TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                            <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
+                                              className={`h-full rounded-full ${idx === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400' : idx === 2 ? 'bg-gradient-to-r from-orange-300 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`} />
+                                          </div>
+                                          <span className="text-[10px] text-muted-foreground tabular-nums w-8 text-right">{pct}%</span>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        {crew.crewMonthlyTarget > 0 ? (
+                                          <div className="flex items-center gap-2">
+                                            <CircularProgress value={Math.min(weeklyAch, 999)} size={36} strokeWidth={3.5} />
+                                            <div className="flex flex-col">
+                                              <span className={`text-[9px] font-bold leading-tight ${achColor?.text || 'text-muted-foreground'}`}>M: {monthlyAch}%</span>
+                                              <span className={`text-[8px] leading-tight ${achColor?.text || 'text-muted-foreground'}`}>W: {weeklyAch}%</span>
+                                            </div>
+                                          </div>
+                                        ) : <span className="text-[10px] text-muted-foreground">—</span>}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        <span className={`font-semibold tabular-nums ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : ''}`}>{fmtRp(periodVal)}</span>
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  )}
 
                   {/* Department Distribution — Dashboard Widget */}
                   <motion.div {...inViewFadeUp} transition={{ delay: 0.1 }}>
@@ -2132,81 +2163,7 @@ export default function Home() {
                     </Card>
                   </motion.div>
 
-                  {/* Department Distribution Widget */}
-                  <motion.div {...inViewFadeUp} transition={{ delay: 0.2 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-md shadow-violet-500/20">
-                            <Layers className="w-4 h-4 text-white" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-base leading-tight">Distribusi per Departemen</CardTitle>
-                            <p className="text-[10px] text-muted-foreground">Penjualan berdasarkan departemen</p>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        {(() => {
-                          // Calculate dept distribution from all claim sales data
-                          const deptMap: Record<string, { total: number; count: number }> = {}
-                          claimSales.forEach(s => {
-                            if (s.dept) {
-                              if (!deptMap[s.dept]) deptMap[s.dept] = { total: 0, count: 0 }
-                              deptMap[s.dept].total += s.settle
-                              deptMap[s.dept].count += 1
-                            }
-                          })
-                          const depts = Object.entries(deptMap).sort((a, b) => b[1].total - a[1].total)
-                          const maxTotal = depts.length > 0 ? depts[0][1].total : 1
-                          const grandTotal = depts.reduce((s, [, v]) => s + v.total, 0)
-                          return depts.length > 0 ? (
-                            <div className="space-y-3">
-                              {depts.map(([dept, data], idx) => {
-                                const pct = maxTotal > 0 ? Math.round((data.total / maxTotal) * 100) : 0
-                                const sharePct = grandTotal > 0 ? ((data.total / grandTotal) * 100).toFixed(1) : '0'
-                                const color = getDeptColor(dept)
-                                return (
-                                  <div key={dept} className="space-y-1.5">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-2.5 h-2.5 rounded-full ${color} shrink-0`} />
-                                        <span className="text-xs font-medium text-foreground">{dept}</span>
-                                        <span className="text-[10px] text-muted-foreground">{data.count} item</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold tabular-nums">{fmtRp(data.total)}</span>
-                                        <span className="text-[10px] text-muted-foreground tabular-nums">{sharePct}%</span>
-                                      </div>
-                                    </div>
-                                    <div className="w-full h-2 bg-muted/50 rounded-full overflow-hidden">
-                                      <motion.div
-                                        initial={{ width: 0 }}
-                                        animate={{ width: `${pct}%` }}
-                                        transition={{ duration: 0.8, ease: 'easeOut', delay: idx * 0.1 }}
-                                        className={`h-full rounded-full ${color}`}
-                                      />
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          ) : (
-                            <div className="text-center py-6">
-                              <motion.div
-                                animate={{ y: [0, -6, 0] }}
-                                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                                className="inline-block"
-                              >
-                                <Layers className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />
-                              </motion.div>
-                              <p className="text-sm text-muted-foreground">Belum ada data departemen</p>
-                            </div>
-                          )
-                        })()}
-                      </CardContent>
-                    </Card>
-                  </motion.div>
+
                 </motion.div>
               ) : null}
                   </motion.div>
@@ -4268,7 +4225,8 @@ export default function Home() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="fixed bottom-[max(5rem,env(safe-area-inset-bottom,5rem))] right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center transition-colors"
+            className="fixed right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center transition-colors"
+            style={{ bottom: 'max(5rem, env(safe-area-inset-bottom, 5rem))' }}
             aria-label="Back to top"
           >
             <ChevronUp className="w-5 h-5" />
@@ -4277,7 +4235,7 @@ export default function Home() {
       </AnimatePresence>
 
       {/* ─── Quick Actions FAB (Mobile Only) ──────────── */}
-      <div className="md:hidden fixed bottom-[max(5.5rem,calc(env(safe-area-inset-bottom,0px)+5.5rem))] left-4 z-40">
+      <div className="md:hidden fixed left-4 z-40" style={{ bottom: 'max(5.5rem, calc(env(safe-area-inset-bottom, 0px) + 5.5rem))' }}>
         <AnimatePresence>
           {!showFabMenu && (
             <motion.button
@@ -4310,7 +4268,8 @@ export default function Home() {
               initial={{ opacity: 0, y: 20, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.9 }}
-              className="md:hidden fixed bottom-[max(5.5rem,calc(env(safe-area-inset-bottom,0px)+5.5rem))] left-4 z-50 space-y-2"
+              className="md:hidden fixed left-4 z-50 space-y-2"
+              style={{ bottom: 'max(5.5rem, calc(env(safe-area-inset-bottom, 0px) + 5.5rem))' }}
             >
               <motion.button
                 whileTap={{ scale: 0.95 }}
@@ -4861,7 +4820,7 @@ export default function Home() {
               <div className="border-t border-border/40 mx-3" />
 
               {/* Logout */}
-              <div className="px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom,1rem))]">
+              <div className="px-3 py-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}>
                 <button
                   onClick={() => { handleLogout(); setShowMobileMenu(false) }}
                   className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 active:bg-red-100 dark:active:bg-red-950/50 transition-colors"
@@ -4879,7 +4838,7 @@ export default function Home() {
 
       {/* ═══ MOBILE BOTTOM NAVIGATION ═══ */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)] animate-mobile-nav-slide-up">
-        <div className="flex items-center justify-around px-1 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-around px-1 py-1.5" style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}>
           {navItems.map(t => {
             const isActive = activeTab === t.val
             return (

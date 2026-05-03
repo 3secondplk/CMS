@@ -1220,6 +1220,12 @@ textarea:focus {
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
 }
 
+/* ─── Mobile Dialog Bottom-Sheet Positioning ──────── */
+.dialog-mobile-bottom-sheet {
+  bottom: max(5rem, env(safe-area-inset-bottom, 5rem));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+}
+
 /* ─── Enhanced Dialog Slide-in ────────────────────── */
 @keyframes dialog-slide-up-enhanced {
   from {
