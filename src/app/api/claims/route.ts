@@ -670,7 +670,7 @@ export async function PUT(request: NextRequest) {
     })
 
     // Log claim activity (fire-and-forget after response)
-    logActivity('CLAIM', `Claim ${claimedCount} data ke ${crew.name} (${fmtRpShort(totalSettle)})`, crew.name, undefined, { claimedCount, totalSettle, crewId: crew.id })
+    if (crew) logActivity('CLAIM', `Claim ${claimedCount} data ke ${crew.name} (${fmtRpShort(totalSettle)})`, crew.name, undefined, { claimedCount, totalSettle, crewId: crew.id })
   } catch (error) {
     console.error('Claim sales error:', error)
     return NextResponse.json(
