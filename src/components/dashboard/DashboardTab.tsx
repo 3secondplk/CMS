@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import {
   Trophy, Medal, Target, TrendingUp, Users, Star, Zap, ArrowUpRight, ArrowDownRight,
-  BarChart3, Calendar, Flame, Clock, Eye, RefreshCw, Upload, ShoppingCart, Package, X,
+  BarChart3, Calendar, Flame, Clock, Eye, RefreshCw, Upload, ShoppingCart, Package, X, ChevronRight,
 } from 'lucide-react'
 import { fmtRp, fmtNum, fadeIn, stagger, AnimatedCounter, SkeletonRow, AchievementBadge, CircularProgress, monthNames } from '@/lib/cms-utils'
 import type { DashboardData, CrewStat, GroupAchievement, GroupDetailData } from '@/lib/cms-types'
@@ -72,12 +72,12 @@ const DashboardTab = React.memo(function DashboardTab({
               { label: 'Penjualan Hari Ini', value: dashboard.totals.today, qty: dashboard.totals.todayQty, icon: Zap, gradient: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-500/20', trend: dashboard.trends?.today },
               { label: 'Penjualan Minggu Ini', value: dashboard.totals.week, qty: dashboard.totals.weekQty, icon: TrendingUp, gradient: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-500/20', trend: dashboard.trends?.week },
               { label: 'Penjualan Bulan Ini', value: dashboard.totals.month, qty: dashboard.totals.monthQty, icon: BarChart3, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20', trend: dashboard.trends?.month },
-              { label: 'Total Transaksi', value: dashboard.crewStats.reduce((s, c) => s + c.transactionCount, 0), qty: 0, icon: ShoppingCart, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', trend: null },
+              { label: 'Total Transaksi (struk)', value: dashboard.totals.totalTransactions ?? 0, qty: 0, icon: ShoppingCart, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', trend: null },
             ].map((card, i) => (
               <motion.div key={i} {...fadeIn} transition={{ delay: i * 0.1 }} whileHover={{ y: -3, transition: { type: 'spring', stiffness: 300 } }}>
                 <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 group cursor-default card-hover-glow">
                   <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-300`} />
-                  <CardContent className="p-4 sm:p-6 relative">
+                  <CardContent className="p-3 sm:p-5 relative">
                     <div className="flex items-start justify-between">
                       <div className="space-y-1.5 min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -448,9 +448,9 @@ const DashboardTab = React.memo(function DashboardTab({
                           className="border-0 shadow-md bg-gradient-to-br from-white to-gray-50/80 dark:from-gray-900 dark:to-gray-800/80 overflow-hidden cursor-pointer hover:ring-2 hover:ring-emerald-400/50 dark:hover:ring-emerald-600/40 transition-all duration-200"
                           onClick={() => { setSelectedGroupDetail(g); setGroupDetailPeriod('daily') }}
                         >
-                          <CardContent className="p-5">
+                          <CardContent className="p-3 sm:p-5">
                             <div className="flex items-center gap-3 mb-4">
-                              <Avatar className="w-12 h-12 border-2 border-emerald-200 dark:border-emerald-800">
+                              <Avatar className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-emerald-200 dark:border-emerald-800">
                                 <AvatarImage src={g.logo || ''} />
                                 <AvatarFallback className="bg-gradient-to-br from-emerald-400 to-teal-500 text-white font-bold text-sm">
                                   {g.name.split(' ').slice(-1)[0][0]}
@@ -506,8 +506,9 @@ const DashboardTab = React.memo(function DashboardTab({
             </Card>
           </motion.div>
 
-          {/* Sales Chart */}
-          <motion.div {...fadeIn} transition={{ delay: 0.5 }}>
+          {/* 3-Column Layout: Bar Chart + Line Chart + Recent Activity */}
+          <div className="grid lg:grid-cols-3 gap-4 sm:gap-6">
+            {/* Sales Chart */}
             <Card className="border-0 shadow-lg overflow-hidden">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
@@ -541,10 +542,8 @@ const DashboardTab = React.memo(function DashboardTab({
                 )}
               </CardContent>
             </Card>
-          </motion.div>
 
-          {/* Sales Trend Line Chart */}
-          <motion.div {...fadeIn} transition={{ delay: 0.55 }}>
+            {/* Sales Trend Line Chart */}
             <Card className="border-0 shadow-lg overflow-hidden">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
@@ -577,10 +576,8 @@ const DashboardTab = React.memo(function DashboardTab({
                 )}
               </CardContent>
             </Card>
-          </motion.div>
 
-          {/* Recent Activity */}
-          <motion.div {...fadeIn} transition={{ delay: 0.6 }}>
+            {/* Recent Activity */}
             <Card className="border-0 shadow-lg">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
@@ -601,8 +598,8 @@ const DashboardTab = React.memo(function DashboardTab({
                     <p className="text-sm text-muted-foreground">Belum ada aktivitas terbaru</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {dashboard.recentSales.map((sale, i) => (
+                  <div className="max-h-[400px] overflow-y-auto space-y-2">
+                    {dashboard.recentSales.slice(0, 20).map((sale, i) => (
                       <motion.div key={sale.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                         className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
                         <Avatar className="w-8 h-8">
@@ -619,11 +616,20 @@ const DashboardTab = React.memo(function DashboardTab({
                         </div>
                       </motion.div>
                     ))}
+                    {dashboard.recentSales.length > 20 && (
+                      <Button
+                        variant="ghost"
+                        className="w-full text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-xs font-medium mt-1"
+                        onClick={() => setActiveTab('claims')}
+                      >
+                        Lihat Selebihnya <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
         </motion.div>
       ) : null}
       </LoadingOverlay>

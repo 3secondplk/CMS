@@ -41,7 +41,7 @@ export interface TrendData {
 }
 
 export interface DashboardData {
-  crewStats: CrewStat[]; totals: { today: number; week: number; month: number; todayQty: number; weekQty: number; monthQty: number }
+  crewStats: CrewStat[]; totals: { today: number; week: number; month: number; todayQty: number; weekQty: number; monthQty: number; totalTransactions: number }
   trends: { today: TrendData; week: TrendData; month: TrendData }
   groupAchievements: GroupAchievement[]; topCrews: CrewStat[]; recentSales: RecentSale[]
   dateInfo: { today: string; currentWeek: number; weekStart: number; weekEnd: number; currentMonth: number; currentYear: number }

@@ -38,7 +38,7 @@ export default function CrewDetailPanel({ selectedCrewDetail, setSelectedCrewDet
             className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40" onClick={() => setSelectedCrewDetail(null)} />
           <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 bottom-0 w-full sm:w-[420px] bg-white dark:bg-gray-900 border-l shadow-2xl z-50 overflow-y-auto">
+            className="fixed right-0 top-0 bottom-0 w-full sm:w-[480px] bg-white dark:bg-gray-900 border-l shadow-2xl z-50 overflow-y-auto">
             <div className="p-5 sm:p-6 space-y-5">
 
               {/* Header */}
@@ -122,14 +122,14 @@ export default function CrewDetailPanel({ selectedCrewDetail, setSelectedCrewDet
                         <motion.div
                           key={i}
                           whileHover={{ y: -1 }}
-                          className={`text-center p-2 rounded-lg border transition-colors ${
+                          className={`text-center p-2 rounded-lg border transition-colors overflow-hidden ${
                             isCurrentWeek
                               ? `${wColor.bg} ${wColor.ring} ring-1`
                               : 'bg-white dark:bg-gray-800 border-border/50'
                           }`}
                         >
                           <p className="text-[9px] text-muted-foreground font-medium">W{i + 1}</p>
-                          <p className="text-xs font-bold tabular-nums">{fmtRp(target)}</p>
+                          <p className="text-[10px] sm:text-xs font-bold tabular-nums truncate min-w-0" title={fmtRp(target)}>{fmtRp(target)}</p>
                           {isCurrentWeek && (
                             <p className={`text-[9px] font-bold ${wColor.text}`}>
                               {crew.crewWeeklyAchievement}%

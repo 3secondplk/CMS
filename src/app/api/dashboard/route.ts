@@ -219,14 +219,37 @@ export async function GET(request: NextRequest) {
         break
     }
 
-    // Calculate totals
+    // Calculate totals — include ALL sales (claimed + unclaimed)
+    const [allTodayAgg, allWeekAgg, allMonthAgg, totalTxRaw] = await Promise.all([
+      db.sale.aggregate({
+        _sum: { settle: true, qty: true },
+        where: { tanggal: { startsWith: todayStr } },
+      }),
+      db.sale.aggregate({
+        _sum: { settle: true, qty: true },
+        where: { tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } },
+      }),
+      db.sale.aggregate({
+        _sum: { settle: true, qty: true },
+        where: { tanggal: { startsWith: monthPrefix } },
+      }),
+      db.$queryRaw<Array<{ count: number }>>`
+        SELECT COUNT(DISTINCT "idPenjualan") as count
+        FROM "Sale"
+        WHERE "idPenjualan" IS NOT NULL
+      `,
+    ])
+
+    const totalTransactions = Number(totalTxRaw[0]?.count ?? 0)
+
     const totals = {
-      today: crewStats.reduce((s, c) => s + c.todayTotal, 0),
-      week: crewStats.reduce((s, c) => s + c.weekTotal, 0),
-      month: crewStats.reduce((s, c) => s + c.monthTotal, 0),
-      todayQty: crewStats.reduce((s, c) => s + c.todayQty, 0),
-      weekQty: crewStats.reduce((s, c) => s + c.weekQty, 0),
-      monthQty: crewStats.reduce((s, c) => s + c.monthQty, 0),
+      today: allTodayAgg._sum.settle ?? 0,
+      week: allWeekAgg._sum.settle ?? 0,
+      month: allMonthAgg._sum.settle ?? 0,
+      todayQty: allTodayAgg._sum.qty ?? 0,
+      weekQty: allWeekAgg._sum.qty ?? 0,
+      monthQty: allMonthAgg._sum.qty ?? 0,
+      totalTransactions,
     }
 
     // --- Trends: compare current period totals with previous period ---
@@ -261,7 +284,7 @@ export async function GET(request: NextRequest) {
         include: { crews: { select: { id: true } } },
       }),
       db.sale.findMany({
-        take: 10,
+        take: 25,
         where: { crewId: { not: null } },
         include: {
           crew: {
