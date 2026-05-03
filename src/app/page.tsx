@@ -306,7 +306,7 @@ function AchievementBadge({ pct }: { pct: number }) {
 }
 
 // ─── Circular Progress ───────────────────────────────────
-function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value: number; size?: number; strokeWidth?: number }) {
+function CircularProgress({ value, size = 100, strokeWidth = 8, showLabel = true }: { value: number; size?: number; strokeWidth?: number; showLabel?: boolean }) {
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
   const offset = circumference - (Math.min(value, 100) / 100) * circumference
@@ -317,6 +317,9 @@ function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value: numbe
   else if (clampedVal >= 50) strokeColor = '#d97706' // amber
   else if (clampedVal >= 25) strokeColor = '#0891b2' // cyan
 
+  // Scale text size proportionally to ring size
+  const fontSize = size >= 80 ? 'text-lg' : size >= 50 ? 'text-[11px]' : 'text-[8px]'
+
   return (
     <div className="relative inline-flex items-center justify-center circular-progress-glow" style={{ width: size, height: size, '--progress-color': strokeColor } as React.CSSProperties}>
       <svg width={size} height={size} className="-rotate-90">
@@ -325,9 +328,11 @@ function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value: numbe
           initial={{ strokeDashoffset: circumference }} animate={{ strokeDashoffset: offset }} transition={{ duration: 1.2, ease: 'easeOut' }}
           strokeDasharray={circumference} />
       </svg>
-      <div className="absolute flex flex-col items-center justify-center">
-        <span className="text-lg font-bold" style={{ color: strokeColor }}>{Math.round(clampedVal)}%</span>
-      </div>
+      {showLabel && (
+        <div className="absolute flex flex-col items-center justify-center">
+          <span className={`${fontSize} font-bold leading-none`} style={{ color: strokeColor }}>{Math.round(clampedVal)}%</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -1758,11 +1763,8 @@ export default function Home() {
                                     </div>
                                     {/* Target indicator */}
                                     {crew.crewMonthlyTarget > 0 && (
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <div className="relative w-10 h-10">
-                                          <CircularProgress value={Math.min(weeklyAch, 999)} size={40} strokeWidth={3} />
-                                          <span className={`absolute inset-0 flex items-center justify-center text-[8px] font-bold ${achColor?.text || 'text-muted-foreground'}`}>{weeklyAch}%</span>
-                                        </div>
+                                      <div className="shrink-0">
+                                        <CircularProgress value={Math.min(weeklyAch, 999)} size={40} strokeWidth={3} />
                                       </div>
                                     )}
                                   </div>
@@ -1832,7 +1834,7 @@ export default function Home() {
                                       <TableCell>
                                         {crew.crewMonthlyTarget > 0 ? (
                                           <div className="flex items-center gap-2">
-                                            <CircularProgress value={Math.min(weeklyAch, 999)} size={36} strokeWidth={3.5} />
+                                            <CircularProgress value={Math.min(weeklyAch, 999)} size={36} strokeWidth={3.5} showLabel={false} />
                                             <div className="flex flex-col">
                                               <span className={`text-[9px] font-bold leading-tight ${achColor?.text || 'text-muted-foreground'}`}>M: {monthlyAch}%</span>
                                               <span className={`text-[8px] leading-tight ${achColor?.text || 'text-muted-foreground'}`}>W: {weeklyAch}%</span>
