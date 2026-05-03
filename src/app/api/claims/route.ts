@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import * as XLSX from 'xlsx'
 
 // ─────────────────────────────────────────────
@@ -300,23 +301,37 @@ export async function GET(request: NextRequest) {
 
     // Search across kodeExtend, brand, dept, and crew name (PG-01: case-insensitive for PostgreSQL)
     if (search) {
-      const searchConditions: Record<string, any>[] = [
-        { kodeExtend: { contains: search, mode: 'insensitive' } },
-        { brand: { contains: search, mode: 'insensitive' } },
-        { dept: { contains: search, mode: 'insensitive' } },
+      const searchConditions: Prisma.SaleWhereInput[] = [
+        { kodeExtend: { contains: search } },
+        { brand: { contains: search } },
+        { dept: { contains: search } },
       ]
       // Only add crew name search if there might be a crew relation
       if (claimed !== 'false') {
-        searchConditions.push({ crew: { name: { contains: search, mode: 'insensitive' } } })
+        searchConditions.push({ crew: { name: { contains: search } } })
       }
       where.OR = searchConditions
     }
 
     // Date range filter on tanggal
+    // Frontend sends ISO format (YYYY-MM-DD), DB stores DD/MM/YYYY
+    // Convert to DD/MM/YYYY prefix for string comparison
     if (dateFrom || dateTo) {
       const tanggalFilter: Record<string, unknown> = {}
-      if (dateFrom) tanggalFilter.gte = dateFrom
-      if (dateTo) tanggalFilter.lte = dateTo
+      if (dateFrom) {
+        // Convert YYYY-MM-DD → DD/MM/YYYY for prefix matching
+        const [y, m, d] = dateFrom.split('-')
+        if (y && m && d) {
+          tanggalFilter.gte = `${d}/${m}/${y}`
+        }
+      }
+      if (dateTo) {
+        const [y, m, d] = dateTo.split('-')
+        if (y && m && d) {
+          // Append a high suffix so lte captures all times within the day
+          tanggalFilter.lte = `${d}/${m}/${y} 23:59`
+        }
+      }
       where.tanggal = tanggalFilter
     }
 
