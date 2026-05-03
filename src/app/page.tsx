@@ -1823,173 +1823,6 @@ export default function Home() {
                     </Card>
                   </motion.div>
 
-                  {/* ─── Crew Target Achievement Cards ─── */}
-                  {dashboard.crewStats.length > 0 && dashboard.crewStats.some(c => c.crewMonthlyTarget > 0) && (
-                  <motion.div {...inViewFadeUp} transition={{ delay: 0.07 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
-                              <Target className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                              <CardTitle className="text-base leading-tight">Target Crew</CardTitle>
-                              <p className="text-[10px] text-muted-foreground">Pencapaian target individual per kru</p>
-                            </div>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {dashboard.crewStats.filter(c => c.crewMonthlyTarget > 0).map((crew, idx) => {
-                            const mColor = getAchievementColor(crew.monthlyAchievement)
-                            const wColor = getAchievementColor(crew.weeklyAchievement)
-                            const currentWeek = dashboard.dateInfo.currentWeek
-                            return (
-                              <motion.div key={crew.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.04 }}
-                                className="rounded-xl border p-3 bg-white dark:bg-gray-900 hover:shadow-md transition-shadow">
-                                {/* Header: Avatar + Name + Group */}
-                                <div className="flex items-center gap-2.5 mb-3">
-                                  <Avatar className="w-9 h-9 shrink-0">
-                                    <AvatarImage src={crew.photo || ''} />
-                                    <AvatarFallback className="text-[10px] bg-gradient-to-br from-emerald-400 to-teal-600 text-white">
-                                      {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-semibold truncate">{crew.name}</p>
-                                    <p className="text-[10px] text-muted-foreground truncate">{crew.groupName}</p>
-                                  </div>
-                                  {/* Over target badge */}
-                                  {crew.monthlyAchievement >= 100 && (
-                                    <Badge className="text-[9px] px-1.5 py-0 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
-                                      OVER TARGET 🎉
-                                    </Badge>
-                                  )}
-                                </div>
-
-                                {/* Monthly Target */}
-                                <div className="mb-2.5">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[10px] text-muted-foreground font-medium">Target Bulanan</span>
-                                    <span className="text-[10px] text-muted-foreground">{fmtRp(crew.crewMonthlyTarget)}</span>
-                                  </div>
-                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(crew.monthlyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut', delay: idx * 0.04 }}
-                                      className={`h-full rounded-full ${mColor.bar}`} />
-                                  </div>
-                                  <div className="flex items-center justify-between mt-0.5">
-                                    <span className={`text-[10px] font-bold ${mColor.text}`}>{Math.round(crew.monthlyAchievement)}%</span>
-                                    <span className="text-[10px] text-muted-foreground tabular-nums">{fmtRp(crew.monthTotal)}</span>
-                                  </div>
-                                </div>
-
-                                {/* Weekly Target */}
-                                <div className="mb-2.5">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[10px] text-muted-foreground font-medium">Target Minggu {currentWeek}</span>
-                                    <span className="text-[10px] text-muted-foreground">{fmtRp(crew.crewWeeklyTarget)}</span>
-                                  </div>
-                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(crew.weeklyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut', delay: idx * 0.04 + 0.1 }}
-                                      className={`h-full rounded-full ${wColor.bar}`} />
-                                  </div>
-                                  <div className="flex items-center justify-between mt-0.5">
-                                    <span className={`text-[10px] font-bold ${wColor.text}`}>{Math.round(crew.weeklyAchievement)}%</span>
-                                    <span className="text-[10px] text-muted-foreground tabular-nums">{fmtRp(crew.weekTotal)}</span>
-                                  </div>
-                                </div>
-
-                                {/* Week Breakdown (tiny bars) */}
-                                <div className="flex gap-1 items-end">
-                                  {crew.weekTargets.map((wt, wIdx) => {
-                                    const maxWt = Math.max(...crew.weekTargets, 1)
-                                    const hPct = Math.round((wt / maxWt) * 100)
-                                    const isCurrentWeek = wIdx + 1 === currentWeek
-                                    return (
-                                      <div key={wIdx} className="flex-1 flex flex-col items-center gap-0.5">
-                                        <span className="text-[7px] text-muted-foreground tabular-nums leading-none">{fmtNum(Math.round(wt / 1000000))}jt</span>
-                                        <div className={`w-full rounded-sm transition-all ${isCurrentWeek ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-muted'}`}
-                                          style={{ height: `${Math.max(hPct, 8)}%`, minHeight: '6px' }} />
-                                        <span className={`text-[7px] ${isCurrentWeek ? 'font-bold text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
-                                          W{wIdx + 1}
-                                        </span>
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              </motion.div>
-                            )
-                          })}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                  )}
-
-                  {/* Recent Activity Feed — Dashboard Widget */}
-                  <motion.div {...inViewFadeUp} transition={{ delay: 0.08 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center shadow-md shadow-cyan-500/20">
-                              <Clock className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                              <CardTitle className="text-base leading-tight">Aktivitas Terbaru</CardTitle>
-                              <p className="text-[10px] text-muted-foreground">Log aktivitas sistem</p>
-                            </div>
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fetchActivityLogs()} title="Refresh">
-                            <RefreshCw className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        {activityLogs.length === 0 ? (
-                          <div className="text-center py-8">
-                            <motion.div animate={{ y: [0, -5, 0] }} transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                              className="w-14 h-14 mx-auto mb-3 rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 dark:from-cyan-950/40 dark:to-teal-950/40 flex items-center justify-center">
-                              <Activity className="w-7 h-7 text-cyan-400 dark:text-cyan-600" />
-                            </motion.div>
-                            <p className="text-sm font-medium text-muted-foreground">Belum ada aktivitas</p>
-                            <p className="text-xs text-muted-foreground/60 mt-1">Aktivitas akan muncul saat ada aksi</p>
-                          </div>
-                        ) : (
-                          <div className="max-h-72 overflow-y-auto space-y-1">
-                            {activityLogs.map((log, idx) => {
-                              const actionConfig: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
-                                CLAIM: { icon: <UserCheck className="w-3.5 h-3.5" />, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' },
-                                BULK_CLAIM: { icon: <UserCheck className="w-3.5 h-3.5" />, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' },
-                                UPLOAD: { icon: <UploadCloud className="w-3.5 h-3.5" />, color: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-100 dark:bg-cyan-950/50' },
-                                EDIT: { icon: <Edit2 className="w-3.5 h-3.5" />, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-950/50' },
-                                DELETE: { icon: <Trash2 className="w-3.5 h-3.5" />, color: 'text-red-500 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-950/50' },
-                                UNCLAIM: { icon: <X className="w-3.5 h-3.5" />, color: 'text-orange-500 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-950/50' },
-                                BULK_DELETE: { icon: <Trash2 className="w-3.5 h-3.5" />, color: 'text-red-500 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-950/50' },
-                              }
-                              const config = actionConfig[log.action] || actionConfig.EDIT
-                              return (
-                                <motion.div key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}
-                                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors group">
-                                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${config.bg} ${config.color}`}>
-                                    {config.icon}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium truncate">{log.description}</p>
-                                    {log.crewName && <p className="text-[10px] text-muted-foreground truncate">Crew: {log.crewName}</p>}
-                                  </div>
-                                  <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">{timeAgo(log.createdAt)}</span>
-                                </motion.div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-
                   {/* Department Distribution — Dashboard Widget */}
                   <motion.div {...inViewFadeUp} transition={{ delay: 0.1 }}>
                     <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
@@ -2371,52 +2204,6 @@ export default function Home() {
                             </div>
                           )
                         })()}
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-
-                  {/* Recent Activity */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.6 }}>
-                    <Card className="border-0 shadow-lg">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-5 h-5 text-emerald-500" />
-                          <CardTitle className="text-base bg-gradient-to-r from-emerald-600 to-cyan-600 dark:from-emerald-400 dark:to-cyan-400 bg-clip-text text-transparent">Aktivitas Terbaru</CardTitle>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        {dashboard.recentSales.length === 0 ? (
-                          <div className="text-center py-8">
-                            <motion.div
-                              animate={{ y: [0, -6, 0] }}
-                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                              className="inline-block"
-                            >
-                              <Clock className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />
-                            </motion.div>
-                            <p className="text-sm text-muted-foreground">Belum ada aktivitas terbaru</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {dashboard.recentSales.map((sale, i) => (
-                              <motion.div key={sale.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
-                                className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                                <Avatar className="w-8 h-8">
-                                  <AvatarImage src={sale.crew?.photo || ''} />
-                                  <AvatarFallback className="text-xs">{(sale.crew?.name || '?')[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{sale.crew?.name || 'Unknown'}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{sale.kodeExtend} • {sale.tanggal}</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(sale.settle)}</p>
-                                  <p className="text-xs text-muted-foreground">Qty: {sale.qty}</p>
-                                </div>
-                              </motion.div>
-                            ))}
-                          </div>
-                        )}
                       </CardContent>
                     </Card>
                   </motion.div>
@@ -3893,6 +3680,87 @@ export default function Home() {
                   <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtNum(selectedCrewDetail.transactionCount)}</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">{fmtNum(selectedCrewDetail.allTimeStruk)} struk unik (id transaksi)</p>
                 </div>
+
+                {/* ─── Target Achievement ─── */}
+                {selectedCrewDetail.crewMonthlyTarget > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                        <Target className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <h4 className="font-bold text-sm">Target & Pencapaian</h4>
+                    </div>
+
+                    {/* Monthly Target */}
+                    <div className="p-3 rounded-xl border bg-white dark:bg-gray-800">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-muted-foreground font-medium">Target Bulanan</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">{fmtRp(selectedCrewDetail.crewMonthlyTarget)}</span>
+                          {selectedCrewDetail.monthlyAchievement >= 100 && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 font-semibold">🎉 OVER</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="h-3 bg-muted rounded-full overflow-hidden">
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(selectedCrewDetail.monthlyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
+                          className={`h-full rounded-full ${getAchievementColor(selectedCrewDetail.monthlyAchievement).bar}`} />
+                      </div>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className={`text-xs font-bold ${getAchievementColor(selectedCrewDetail.monthlyAchievement).text}`}>
+                          {Math.round(selectedCrewDetail.monthlyAchievement)}% tercapai
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{fmtRp(selectedCrewDetail.monthTotal)}</span>
+                      </div>
+                    </div>
+
+                    {/* Weekly Target */}
+                    <div className="p-3 rounded-xl border bg-white dark:bg-gray-800">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-muted-foreground font-medium">Target Minggu {dashboard?.dateInfo?.currentWeek || '?'}</span>
+                        <span className="text-xs text-muted-foreground">{fmtRp(selectedCrewDetail.crewWeeklyTarget)}</span>
+                      </div>
+                      <div className="h-3 bg-muted rounded-full overflow-hidden">
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(selectedCrewDetail.weeklyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut', delay: 0.2 }}
+                          className={`h-full rounded-full ${getAchievementColor(selectedCrewDetail.weeklyAchievement).bar}`} />
+                      </div>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className={`text-xs font-bold ${getAchievementColor(selectedCrewDetail.weeklyAchievement).text}`}>
+                          {Math.round(selectedCrewDetail.weeklyAchievement)}% tercapai
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{fmtRp(selectedCrewDetail.weekTotal)}</span>
+                      </div>
+                    </div>
+
+                    {/* Week Breakdown */}
+                    <div className="p-3 rounded-xl border bg-white dark:bg-gray-800">
+                      <p className="text-xs text-muted-foreground font-medium mb-2">Breakdown Mingguan</p>
+                      <div className="flex gap-2 items-end">
+                        {selectedCrewDetail.weekTargets.map((wt, wIdx) => {
+                          const maxWt = Math.max(...selectedCrewDetail.weekTargets, 1)
+                          const hPct = Math.round((wt / maxWt) * 100)
+                          const isCurrentWeek = wIdx + 1 === (dashboard?.dateInfo?.currentWeek || 1)
+                          const weekAch = selectedCrewDetail.weekAchievements?.[wIdx]
+                          return (
+                            <div key={wIdx} className="flex-1 flex flex-col items-center gap-1">
+                              <span className="text-[9px] text-muted-foreground tabular-nums">{fmtRp(Math.round(wt / 1000000))}jt</span>
+                              <div className={`w-full rounded-md transition-all ${isCurrentWeek ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-muted'}`}
+                                style={{ height: `${Math.max(hPct, 12)}%`, minHeight: '16px' }} />
+                              <span className={`text-[9px] font-medium ${isCurrentWeek ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                                W{wIdx + 1}
+                              </span>
+                              {weekAch !== undefined && weekAch > 0 && (
+                                <span className={`text-[8px] font-bold ${getAchievementColor(weekAch).text}`}>
+                                  {Math.round(weekAch)}%
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </>
@@ -3964,6 +3832,49 @@ export default function Home() {
                     <p className="text-sm text-muted-foreground text-center">
                       Periode: <span className="font-semibold text-foreground">{groupDetailData.period}</span>
                     </p>
+
+                    {/* Group Target Achievement */}
+                    {selectedGroupDetail.monthlyTarget > 0 && (
+                      <div className="p-4 rounded-xl border bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                            <Target className="w-3.5 h-3.5 text-white" />
+                          </div>
+                          <h4 className="font-bold text-sm">Target Group</h4>
+                          {selectedGroupDetail.monthlyAchievement >= 100 && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 font-semibold">🎉 OVER</span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Target Bulanan</p>
+                            <p className="text-sm font-bold tabular-nums">{fmtRp(selectedGroupDetail.monthlyTarget)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Pencapaian</p>
+                            <p className={`text-sm font-bold ${getAchievementColor(selectedGroupDetail.monthlyAchievement).text}`}>{Math.round(selectedGroupDetail.monthlyAchievement)}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Target Minggu {selectedGroupDetail.currentWeek}</p>
+                            <p className="text-sm font-bold tabular-nums">{fmtRp(selectedGroupDetail.weeklyTarget)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Ach. Mingguan</p>
+                            <p className={`text-sm font-bold ${getAchievementColor(selectedGroupDetail.weeklyAchievement).text}`}>{Math.round(selectedGroupDetail.weeklyAchievement)}%</p>
+                          </div>
+                        </div>
+                        <div className="mt-3">
+                          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                            <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(selectedGroupDetail.monthlyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
+                              className={`h-full rounded-full ${getAchievementColor(selectedGroupDetail.monthlyAchievement).bar}`} />
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-[10px] text-muted-foreground">{fmtRp(selectedGroupDetail.monthlyTotal)} dari {fmtRp(selectedGroupDetail.monthlyTarget)}</span>
+                            <span className="text-[10px] text-muted-foreground">{selectedGroupDetail.crewCount} crew</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Group Summary Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -4357,7 +4268,7 @@ export default function Home() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="fixed bottom-20 right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center transition-colors"
+            className="fixed bottom-[max(5rem,env(safe-area-inset-bottom,5rem))] right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center transition-colors"
             aria-label="Back to top"
           >
             <ChevronUp className="w-5 h-5" />
@@ -4366,7 +4277,7 @@ export default function Home() {
       </AnimatePresence>
 
       {/* ─── Quick Actions FAB (Mobile Only) ──────────── */}
-      <div className="md:hidden fixed bottom-[72px] left-4 z-40">
+      <div className="md:hidden fixed bottom-[max(5.5rem,calc(env(safe-area-inset-bottom,0px)+5.5rem))] left-4 z-40">
         <AnimatePresence>
           {!showFabMenu && (
             <motion.button
@@ -4399,7 +4310,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 20, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.9 }}
-              className="md:hidden fixed bottom-[72px] left-4 z-50 space-y-2"
+              className="md:hidden fixed bottom-[max(5.5rem,calc(env(safe-area-inset-bottom,0px)+5.5rem))] left-4 z-50 space-y-2"
             >
               <motion.button
                 whileTap={{ scale: 0.95 }}
@@ -4883,7 +4794,7 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      {/* ═══ MOBILE ACCOUNT MENU ═══ */}
+      {/* ═══ MOBILE ACCOUNT SHEET ═══ */}
       <AnimatePresence>
         {showMobileMenu && (
           <>
@@ -4891,52 +4802,74 @@ export default function Home() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="md:hidden fixed inset-0 bg-black/40 z-[60]"
+              transition={{ duration: 0.2 }}
+              className="md:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[60]"
               onClick={() => setShowMobileMenu(false)}
             />
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }}
-              className="md:hidden fixed bottom-[68px] right-3 z-[70] w-56 rounded-2xl bg-white dark:bg-gray-900 border border-border/60 shadow-2xl overflow-hidden"
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="md:hidden fixed bottom-0 left-0 right-0 z-[70] bg-white dark:bg-gray-900 rounded-t-3xl shadow-2xl overflow-hidden max-h-[80dvh]"
             >
-              {/* Account header */}
-              <div className="px-4 py-3 border-b border-border/40 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                    <Shield className="w-4 h-4 text-white" />
+              {/* Drag handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+              </div>
+
+              {/* Profile header */}
+              <div className="px-5 pb-4 pt-1">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 flex items-center justify-center shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-200 dark:ring-emerald-800">
+                    <Shield className="w-6 h-6 text-white" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-foreground truncate">Administrator</p>
-                    <p className="text-[10px] text-muted-foreground">admin@cms.local</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-bold text-foreground">Administrator</p>
+                    <p className="text-xs text-muted-foreground">admin@cms.local</p>
                   </div>
+                  <Badge className="bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px] px-2 py-0.5 shrink-0">
+                    <Shield className="w-3 h-3 mr-1" />Admin
+                  </Badge>
                 </div>
               </div>
+
+              <div className="border-t border-border/40" />
+
               {/* Menu items */}
-              <div className="p-1.5">
+              <div className="px-3 py-3 space-y-1">
                 <button
                   onClick={() => { setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'); setShowMobileMenu(false) }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-muted/80 transition-colors"
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-medium text-foreground hover:bg-muted/80 active:bg-muted transition-colors"
                 >
-                  {resolvedTheme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-500" />}
+                  <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center shrink-0">
+                    {resolvedTheme === 'dark' ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-500" />}
+                  </div>
                   <span>{resolvedTheme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}</span>
                 </button>
                 <button
                   onClick={() => { setShowShortcutsDialog(true); setShowMobileMenu(false) }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-muted/80 transition-colors"
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-medium text-foreground hover:bg-muted/80 active:bg-muted transition-colors"
                 >
-                  <Keyboard className="w-4 h-4 text-muted-foreground" />
+                  <div className="w-9 h-9 rounded-xl bg-muted/60 flex items-center justify-center shrink-0">
+                    <Keyboard className="w-4 h-4 text-muted-foreground" />
+                  </div>
                   <span>Keyboard Shortcuts</span>
                 </button>
-                <div className="my-1 border-t border-border/30" />
+              </div>
+
+              <div className="border-t border-border/40 mx-3" />
+
+              {/* Logout */}
+              <div className="px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom,1rem))]">
                 <button
                   onClick={() => { handleLogout(); setShowMobileMenu(false) }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 active:bg-red-100 dark:active:bg-red-950/50 transition-colors"
                 >
-                  <LogOut className="w-4 h-4" />
-                  <span className="font-medium">Logout</span>
+                  <div className="w-9 h-9 rounded-xl bg-red-50 dark:bg-red-950/30 flex items-center justify-center shrink-0">
+                    <LogOut className="w-4 h-4" />
+                  </div>
+                  <span>Logout</span>
                 </button>
               </div>
             </motion.div>

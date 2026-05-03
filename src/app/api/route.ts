@@ -1,5 +1,59 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
 
-export async function GET() {
-  return NextResponse.json({ message: "Hello, world!" });
+// ─────────────────────────────────────────────
+// PUT /api/claims/unclaim — Unclaim sales (remove crew assignment)
+// ─────────────────────────────────────────────
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { saleIds } = body as { saleIds?: string[] }
+
+    if (!saleIds || !Array.isArray(saleIds) || saleIds.length === 0) {
+      return NextResponse.json(
+        { error: 'saleIds harus berupa array yang tidak kosong' },
+        { status: 400 },
+      )
+    }
+
+    // Verify all saleIds exist and are currently claimed
+    const existingSales = await db.sale.findMany({
+      where: {
+        id: { in: saleIds },
+        crewId: { not: null },
+      },
+    })
+
+    if (existingSales.length === 0) {
+      return NextResponse.json(
+        { error: 'Tidak ada data penjualan yang sedang di-claim' },
+        { status: 400 },
+      )
+    }
+
+    const validIds = existingSales.map((s) => s.id)
+    const skippedCount = saleIds.length - validIds.length
+
+    // Unclaim: set crewId to null and claimedAt to null
+    const result = await db.sale.updateMany({
+      where: { id: { in: validIds } },
+      data: {
+        crewId: null,
+        claimedAt: null,
+      },
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: `Berhasil melepas claim dari ${result.count} data penjualan`,
+      unclaimedCount: result.count,
+      skippedCount: skippedCount > 0 ? skippedCount : undefined,
+    })
+  } catch (error) {
+    console.error('Unclaim sales error:', error)
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat melepas claim' },
+      { status: 500 },
+    )
+  }
 }
