@@ -118,8 +118,8 @@ const fmtNum = (n: number) => new Intl.NumberFormat('id-ID').format(n)
 
 const fadeIn = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -20 } }
 const stagger = { animate: { transition: { staggerChildren: 0.06 } } }
-const tabTransition = { initial: { opacity: 0, y: 16, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -10, scale: 0.99 }, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const } }
-const inViewFadeUp = { initial: { opacity: 0, y: 24 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-40px' as const }, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as const } }
+const tabTransition = { initial: { opacity: 0, y: 16, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -10, scale: 0.99 }, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } }
+const inViewFadeUp = { initial: { opacity: 0, y: 24 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-40px' }, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } }
 
 function getWIBDate() {
   const now = new Date()
