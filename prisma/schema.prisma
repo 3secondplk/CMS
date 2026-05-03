@@ -84,3 +84,14 @@ model Sale {
   claimedAt        DateTime?
   createdAt        DateTime @default(now())
 }
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  action      String
+  description String
+  crewName    String?
+  saleId      String?
+  metadata    String?  // JSON string for extra data
+  createdAt   DateTime @default(now())
+}
+
