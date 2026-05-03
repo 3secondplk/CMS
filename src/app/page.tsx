@@ -318,7 +318,7 @@ function CircularProgress({ value, size = 100, strokeWidth = 8, showLabel = true
   else if (clampedVal >= 25) strokeColor = '#0891b2' // cyan
 
   // Scale text size proportionally to ring size
-  const fontSize = size >= 80 ? 'text-lg' : size >= 50 ? 'text-[11px]' : 'text-[8px]'
+  const fontSize = size >= 80 ? 'text-lg' : size >= 60 ? 'text-sm' : size >= 45 ? 'text-[11px]' : 'text-[10px]'
 
   return (
     <div className="relative inline-flex items-center justify-center circular-progress-glow" style={{ width: size, height: size, '--progress-color': strokeColor } as React.CSSProperties}>
@@ -329,8 +329,8 @@ function CircularProgress({ value, size = 100, strokeWidth = 8, showLabel = true
           strokeDasharray={circumference} />
       </svg>
       {showLabel && (
-        <div className="absolute flex flex-col items-center justify-center">
-          <span className={`${fontSize} font-bold leading-none`} style={{ color: strokeColor }}>{Math.round(clampedVal)}%</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ width: size, height: size }}>
+          <span className={`${fontSize} font-bold`} style={{ color: strokeColor, lineHeight: 1 }}>{Math.round(clampedVal)}%</span>
         </div>
       )}
     </div>
