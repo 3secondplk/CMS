@@ -16,7 +16,7 @@ import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { useTheme } from 'next-themes'
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
 import {
   LayoutDashboard, Upload, Settings, Trophy, Medal, Target, TrendingUp,
   Users, Crown, Star, Zap, ArrowUpRight, ArrowDownRight, Plus, Trash2,
@@ -25,7 +25,9 @@ import {
   Calendar, Award, Flame, CircleDot, Package, Clock, Shield,
   Sun, Moon, AlertTriangle, UploadCloud, X, Download, Sparkles, Eye, RefreshCw, Percent, ChevronUp, UserCheck,
   Layers, Monitor, Tablet, Smartphone, Code2, Beaker, Briefcase, Heart,
-  CalendarDays, CalendarRange, Hand, PartyPopper, GripVertical, SlidersHorizontal, ChevronDown
+  CalendarDays, CalendarRange, Hand, PartyPopper, GripVertical, SlidersHorizontal, ChevronDown, Bell,
+  CreditCard, QrCode, Wallet, Info, Globe, Activity, Printer, Keyboard, HelpCircle
+
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
@@ -37,6 +39,14 @@ interface CrewStat {
   monthTotal: number; monthQty: number; monthStruk: number
   allTimeTotal: number; allTimeQty: number; allTimeStruk: number
   transactionCount: number
+  // Crew target system
+  crewMonthlyTarget: number
+  crewWeeklyTarget: number
+  monthlyAchievement: number
+  weeklyAchievement: number
+  weekTargets: number[]
+  weekAchievements: number[]
+  groupCrewCount: number
 }
 
 interface GroupAchievement {
@@ -59,6 +69,7 @@ interface DashboardData {
   crewStats: CrewStat[]; totals: { today: number; week: number; month: number; todayQty: number; weekQty: number; monthQty: number }
   trends: { today: TrendData; week: TrendData; month: TrendData }
   groupAchievements: GroupAchievement[]; topCrews: CrewStat[]; recentSales: RecentSale[]
+  deptBreakdown: { dept: string; totalSettle: number; totalQty: number; count: number }[]
   dateInfo: { today: string; currentWeek: number; weekStart: number; weekEnd: number; currentMonth: number; currentYear: number }
 }
 
@@ -76,6 +87,9 @@ interface Group {
 interface ClaimSale {
   id: string; tanggal: string; kodeExtend: string; qty: number; settle: number
   brand: string; dept: string; modul: string; program: string; pembayaran: string
+  ukuran: string | null; hjp: number; netto: number; diskon: number; diskonRp: number
+  potongan: number; potonganV: number; idPenjualan: string | null
+  statusRetention: string | null; retentionCode: string | null; channelStock: string | null
   createdAt: string; claimedAt: string | null
   crew: { id: string; name: string; employeeId: string; photo: string | null } | null
 }
@@ -104,6 +118,8 @@ const fmtNum = (n: number) => new Intl.NumberFormat('id-ID').format(n)
 
 const fadeIn = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -20 } }
 const stagger = { animate: { transition: { staggerChildren: 0.06 } } }
+const tabTransition = { initial: { opacity: 0, y: 16, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -10, scale: 0.99 }, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } }
+const inViewFadeUp = { initial: { opacity: 0, y: 24 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-40px' }, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } }
 
 function getWIBDate() {
   const now = new Date()
@@ -149,6 +165,24 @@ function getDeptColor(dept: string): string {
   return deptColorMap[Math.abs(hash) % deptColorMap.length]
 }
 
+function getPaymentBadgeClass(pembayaran: string): string {
+  const p = pembayaran.toLowerCase()
+  if (p.includes('qris') || p.includes('qr')) return 'tag-chip-payment-qr'
+  if (p.includes('debit')) return 'tag-chip-payment-debit'
+  if (p.includes('credit') || p.includes('kredit')) return 'tag-chip-payment-credit'
+  if (p.includes('cash') || p.includes('tunai')) return 'tag-chip-payment-cash'
+  return 'tag-chip-payment'
+}
+
+function getPaymentIcon(pembayaran: string) {
+  const p = pembayaran.toLowerCase()
+  if (p.includes('qris') || p.includes('qr')) return <QrCode className="w-3 h-3" />
+  if (p.includes('debit')) return <CreditCard className="w-3 h-3" />
+  if (p.includes('credit') || p.includes('kredit')) return <CreditCard className="w-3 h-3" />
+  if (p.includes('cash') || p.includes('tunai')) return <Wallet className="w-3 h-3" />
+  return null
+}
+
 function getWeekRange(): { from: string; to: string } {
   const now = getWIBDate()
   const dayOfMonth = now.getDate()
@@ -188,9 +222,26 @@ async function safeFetch(url: string, opts?: RequestInit, timeoutMs = 8000): Pro
   }
 }
 
+// ─── Achievement Color Helper ──────────────────────────
+function getAchievementColor(pct: number): { bar: string; text: string; bg: string } {
+  if (pct >= 100) return { bar: 'bg-gradient-to-r from-emerald-400 to-teal-500', text: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' }
+  if (pct >= 75) return { bar: 'bg-gradient-to-r from-emerald-500 to-emerald-600', text: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' }
+  if (pct >= 50) return { bar: 'bg-gradient-to-r from-amber-400 to-amber-500', text: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-950/50' }
+  return { bar: 'bg-gradient-to-r from-rose-400 to-rose-500', text: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-950/50' }
+}
+
 // ─── Animated Counter ────────────────────────────────────
 function AnimatedCounter({ value, prefix = '', suffix = '' }: { value: number; prefix?: string; suffix?: string }) {
   const [display, setDisplay] = useState(0)
+  const [pulsing, setPulsing] = useState(false)
+  const prevValue = useRef(value)
+  useEffect(() => {
+    if (prevValue.current !== value) {
+      setPulsing(true)
+      setTimeout(() => setPulsing(false), 600)
+    }
+    prevValue.current = value
+  }, [value])
   useEffect(() => {
     const isNeg = value < 0
     let start = 0
@@ -199,14 +250,19 @@ function AnimatedCounter({ value, prefix = '', suffix = '' }: { value: number; p
     const stepTime = 16
     const steps = duration / stepTime
     const increment = end / steps
+    let currentStep = 0
     const timer = setInterval(() => {
-      start += increment
-      if (start >= end) { setDisplay(isNeg ? -end : end); clearInterval(timer) }
-      else setDisplay(Math.floor(start) * (isNeg ? -1 : 1))
+      currentStep++
+      // Ease-out cubic for smooth deceleration
+      const progress = currentStep / steps
+      const eased = 1 - Math.pow(1 - progress, 3)
+      const current = Math.floor(eased * end)
+      if (progress >= 1) { setDisplay(isNeg ? -end : end); clearInterval(timer) }
+      else setDisplay(current * (isNeg ? -1 : 1))
     }, stepTime)
     return () => clearInterval(timer)
   }, [value])
-  return <span>{prefix}{fmtNum(Math.abs(display))}{suffix}</span>
+  return <span className={pulsing ? 'counter-pulse' : ''}>{prefix}{fmtNum(Math.abs(display))}{suffix}</span>
 }
 
 // ─── Skeleton Loader ────────────────────────────────────
@@ -215,7 +271,7 @@ function SkeletonRow({ cols = 5 }: { cols?: number }) {
     <tr className="animate-pulse">
       {Array.from({ length: cols }).map((_, i) => (
         <td key={i} className="px-4 py-3">
-          <div className="h-3 bg-muted rounded-full w-full" style={{ maxWidth: i === 0 ? '80px' : '120px' }} />
+          <div className="h-3 skeleton-shimmer-premium w-full" style={{ maxWidth: i === 0 ? '80px' : '120px' }} />
         </td>
       ))}
     </tr>
@@ -224,13 +280,13 @@ function SkeletonRow({ cols = 5 }: { cols?: number }) {
 
 function SkeletonCard() {
   return (
-    <div className="p-3 rounded-lg border bg-white dark:bg-gray-900 animate-pulse">
-      <div className="h-3 bg-muted rounded-full w-3/4 mb-2" />
+    <div className="p-3 rounded-xl border bg-white dark:bg-gray-900 animate-pulse card-hover-glow">
+      <div className="h-3 skeleton-shimmer-premium w-3/4 mb-2" />
       <div className="grid grid-cols-2 gap-2">
-        <div className="h-2.5 bg-muted rounded-full w-12" />
-        <div className="h-2.5 bg-muted rounded-full w-20" />
-        <div className="h-2.5 bg-muted rounded-full w-12" />
-        <div className="h-2.5 bg-muted rounded-full w-16" />
+        <div className="h-2.5 skeleton-shimmer-premium w-12" />
+        <div className="h-2.5 skeleton-shimmer-premium w-20" />
+        <div className="h-2.5 skeleton-shimmer-premium w-12" />
+        <div className="h-2.5 skeleton-shimmer-premium w-16" />
       </div>
     </div>
   )
@@ -246,7 +302,7 @@ function AchievementBadge({ pct }: { pct: number }) {
   else if (pct >= 75) { color = 'text-purple-600 bg-purple-100 dark:bg-purple-950/50 dark:text-purple-400'; label = '💎 Diamond'; icon = <Star className="w-4 h-4" />; shimmer = 'badge-shimmer' }
   else if (pct >= 50) { color = 'text-yellow-600 bg-yellow-100 dark:bg-yellow-950/50 dark:text-yellow-400'; label = '🥇 Gold'; icon = <Award className="w-4 h-4" />; shimmer = 'badge-shimmer' }
   else if (pct >= 25) { color = 'text-gray-500 bg-gray-100 dark:bg-gray-800 dark:text-gray-400'; label = '🥈 Silver'; icon = <Medal className="w-4 h-4" /> }
-  return <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${color} ${shimmer}`}>{icon}{label}</span>
+  return <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${color} ${shimmer} achievement-float`}>{icon}{label}</span>
 }
 
 // ─── Circular Progress ───────────────────────────────────
@@ -262,7 +318,7 @@ function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value: numbe
   else if (clampedVal >= 25) strokeColor = '#0891b2' // cyan
 
   return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+    <div className="relative inline-flex items-center justify-center circular-progress-glow" style={{ width: size, height: size, '--progress-color': strokeColor } as React.CSSProperties}>
       <svg width={size} height={size} className="-rotate-90">
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted/30" />
         <motion.circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={strokeColor} strokeWidth={strokeWidth} strokeLinecap="round"
@@ -272,6 +328,23 @@ function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value: numbe
       <div className="absolute flex flex-col items-center justify-center">
         <span className="text-lg font-bold" style={{ color: strokeColor }}>{Math.round(clampedVal)}%</span>
       </div>
+    </div>
+  )
+}
+
+// ─── Custom Chart Tooltip ────────────────────────────────
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string; dataKey?: string }>; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null
+  return (
+    <div className="chart-tooltip-custom">
+      {label && <div className="chart-tooltip-label">{label}</div>}
+      {payload.map((entry, i) => (
+        <div key={i} className="chart-tooltip-item">
+          <span className="chart-tooltip-dot" style={{ background: entry.color }} />
+          <span>{entry.name}</span>
+          <span className="chart-tooltip-value">{fmtRp(entry.value)}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -301,11 +374,17 @@ export default function Home() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
+  const [currentTime, setCurrentTime] = useState('')
+  const [showNotif, setShowNotif] = useState(false)
+  const [showFabMenu, setShowFabMenu] = useState(false)
 
   // Dashboard state
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [dashPeriod, setDashPeriod] = useState<'today' | 'week' | 'month'>('today')
   const [dashLoading, setDashLoading] = useState(true)
+
+  // Activity log state
+  const [activityLogs, setActivityLogs] = useState<Array<{ id: string; action: string; description: string; crewName: string | null; saleId: string | null; metadata: string | null; createdAt: string }>>([])
 
   // Claims state
   const [crews, setCrews] = useState<Crew[]>([])
@@ -314,6 +393,7 @@ export default function Home() {
   const [claimTotalPages, setClaimTotalPages] = useState(1)
   const [claimPage, setClaimPage] = useState(1)
   const [claimSearch, setClaimSearch] = useState('')
+  const [claimSearchInput, setClaimSearchInput] = useState('') // Separate state for input to prevent glitch
   const todayStr = getWIBToday()
   const [claimDateFrom, setClaimDateFrom] = useState(todayStr)
   const [claimDateTo, setClaimDateTo] = useState(todayStr)
@@ -327,12 +407,15 @@ export default function Home() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadResult, setUploadResult] = useState<{ totalRows: number; totalQty: number; totalSettle: number; uniqueProducts: number; duplicateRows?: number } | null>(null)
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [previewFile, setPreviewFile] = useState<{ name: string; size: number; rows: ScanResult[] } | null>(null)
   const [claiming, setClaiming] = useState(false)
+  const [bulkClaimProgress, setBulkClaimProgress] = useState(0)
   const [programs, setPrograms] = useState<string[]>([])
   const [selectedSaleIds, setSelectedSaleIds] = useState<Set<string>>(new Set())
   const [claimCrewSearch, setClaimCrewSearch] = useState('')
   const [selectedClaimCrewId, setSelectedClaimCrewId] = useState('')
   const [claimSummary, setClaimSummary] = useState<{ totalQty: number; totalSettle: number; totalStruk: number; basketSize: number; pricePoint: number } | null>(null)
+  const [claimOverview, setClaimOverview] = useState<{ unclaimedCount: number; unclaimedSettle: number; claimedCount: number; claimedSettle: number; todayActivity: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Management state
@@ -348,6 +431,16 @@ export default function Home() {
   // Batch delete state for Laporan
   const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set())
   const [batchDeleting, setBatchDeleting] = useState(false)
+
+  // Sales detail modal state
+  const [saleDetailDialog, setSaleDetailDialog] = useState<ClaimSale | null>(null)
+
+  // Claim confirmation dialog state
+  const [claimConfirmDialog, setClaimConfirmDialog] = useState(false)
+
+  // Keyboard shortcuts dialog
+  const [showShortcutsDialog, setShowShortcutsDialog] = useState(false)
+  const claimSearchInputRef = useRef<HTMLInputElement>(null)
 
   // Check auth on mount
   useEffect(() => {
@@ -370,6 +463,22 @@ export default function Home() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
+  // Fetch activity logs
+  const fetchActivityLogs = useCallback(async () => {
+    try {
+      const r = await safeFetch('/api/activity?limit=10')
+      const d = await r.json()
+      if (Array.isArray(d)) setActivityLogs(d)
+    } catch { /* silent */ }
+  }, [])
+
+  useEffect(() => { fetchActivityLogs() }, [fetchActivityLogs])
+
+  // Refresh activity logs when switching to dashboard
+  useEffect(() => {
+    if (activeTab === 'dashboard') fetchActivityLogs()
+  }, [activeTab, fetchActivityLogs])
+
   // Fetch crews for claim form — staggered 300ms after dashboard
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -381,6 +490,12 @@ export default function Home() {
     }, 300)
     return () => clearTimeout(t)
   }, [])
+
+  // Debounce search: sync claimSearchInput → claimSearch after 350ms delay
+  useEffect(() => {
+    const t = setTimeout(() => setClaimSearch(claimSearchInput), 350)
+    return () => clearTimeout(t)
+  }, [claimSearchInput])
 
   // Fetch claim sales history — staggered 600ms after mount
   const fetchClaims = useCallback(async (page: number) => {
@@ -400,6 +515,7 @@ export default function Home() {
       setClaimTotalPages(d.totalPages || 1)
       setClaimPage(d.page || 1)
       if (d.summary) setClaimSummary(d.summary)
+      if (d.overview) setClaimOverview(d.overview)
     } catch { /* silent */ }
     finally { setClaimsLoading(false) }
   }, [claimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed])
@@ -441,6 +557,93 @@ export default function Home() {
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
+
+  // Live WIB clock
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const d = getWIBDate()
+      setCurrentTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Close notification dropdown on outside click
+  useEffect(() => {
+    if (!showNotif) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('[data-notif-dropdown]')) setShowNotif(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showNotif])
+
+  // ─── Keyboard Shortcuts ──────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable
+
+      // Escape — close all modals/dialogs
+      if (e.key === 'Escape') {
+        if (showUploadModal) { setShowUploadModal(false); return }
+        if (saleDetailDialog) { setSaleDetailDialog(null); return }
+        if (editSaleDialog) { setEditSaleDialog(null); return }
+        if (deleteConfirm) { setDeleteConfirm(null); return }
+        if (claimConfirmDialog) { setClaimConfirmDialog(false); return }
+        if (showShortcutsDialog) { setShowShortcutsDialog(false); return }
+        if (showNotif) { setShowNotif(false); return }
+        if (showFabMenu) { setShowFabMenu(false); return }
+        if (showFilterPanel) { setShowFilterPanel(false); return }
+        if (selectedSaleIds.size > 0) { setSelectedSaleIds(new Set()); return }
+        return
+      }
+
+      // Don't trigger shortcuts when typing in inputs (except specific combos)
+      if (isInput && !(e.ctrlKey || e.metaKey)) return
+
+      // Ctrl+K or / — Focus search bar on Claims tab
+      if (((e.ctrlKey || e.metaKey) && e.key === 'k') || (e.key === '/' && !isInput)) {
+        e.preventDefault()
+        setActiveTab('claims')
+        // Focus the search input after a short delay for the tab to render
+        setTimeout(() => {
+          const searchInput = document.querySelector('input[placeholder*="Cari kode"]') as HTMLInputElement
+          if (searchInput) searchInput.focus()
+        }, 100)
+        return
+      }
+
+      // Ctrl+U — Open upload modal
+      if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+        e.preventDefault()
+        if (isAdmin) {
+          setActiveTab('claims')
+          setTimeout(() => setShowUploadModal(true), 100)
+        }
+        return
+      }
+
+      // 1, 2, 3 — Switch tabs (only when not in input)
+      if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === '1') { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); return }
+        if (e.key === '2') { setActiveTab('claims'); window.scrollTo({ top: 0, behavior: 'smooth' }); return }
+        if (e.key === '3' && isAdmin) { setActiveTab('management'); window.scrollTo({ top: 0, behavior: 'smooth' }); return }
+      }
+
+      // Ctrl+E — Export current view
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault()
+        if (activeTab === 'claims') {
+          handleExportExcel()
+        }
+        return
+      }
+    }
+
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [showUploadModal, saleDetailDialog, editSaleDialog, deleteConfirm, claimConfirmDialog, showShortcutsDialog, showNotif, showFabMenu, showFilterPanel, selectedSaleIds, isAdmin, activeTab])
 
   // ─── Auth handlers ────────────────────────────────────
   const handleLogin = async () => {
@@ -491,6 +694,9 @@ export default function Home() {
       } else {
         toast.success(`Import berhasil! ${d.summary?.totalRows || 0} data diimpor — Total: ${fmtRp(d.summary?.totalSettle || 0)}`)
       }
+      // Reset date filter to "all" so user can see the uploaded data immediately
+      setClaimDateFrom('')
+      setClaimDateTo('')
       fetchClaims(1)
       fetchDashboard()
       fetchPrograms()
@@ -502,15 +708,42 @@ export default function Home() {
     }
   }
 
+  // Parse Excel file for preview via server-side API (avoids client-side xlsx bundle issues)
+  const parseExcelPreview = async (file: File): Promise<ScanResult[]> => {
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await safeFetch('/api/claims/preview', { method: 'POST', body: fd })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        toast.error(d.error || 'Gagal membaca preview file')
+        return []
+      }
+      const d = await r.json()
+      return d.previewRows || []
+    } catch {
+      toast.error('Gagal membaca preview file')
+      return []
+    }
+  }
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    // Show preview first, then auto-upload
+    setUploadResult(null)
+    const rows = await parseExcelPreview(file)
+    setPreviewFile({ name: file.name, size: file.size, rows })
+    // Only proceed with upload if preview succeeded or returned empty (not an error)
     await processImport(file)
     e.target.value = ''
   }
 
   const handleDropFile = async (file: File) => {
     if (!file) return
+    setUploadResult(null)
+    const rows = await parseExcelPreview(file)
+    setPreviewFile({ name: file.name, size: file.size, rows })
     await processImport(file)
   }
 
@@ -520,17 +753,20 @@ export default function Home() {
     const crew = crews.find(c => c.id === selectedClaimCrewId)
     if (!crew) { toast.error('Crew tidak ditemukan'); return }
     setClaiming(true)
+    setBulkClaimProgress(10)
     try {
+      setBulkClaimProgress(30)
       const r = await safeFetch('/api/claims', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ saleIds: Array.from(selectedSaleIds), crewId: crew.id })
       })
+      setBulkClaimProgress(70)
       const d = await r.json()
+      setBulkClaimProgress(90)
 
       // ── Handle conflict responses (race condition detected) ──
       if (d.code === 'ALL_CONFLICT') {
-        // ALL requested sales were already claimed by someone else
         const claimers = [...new Set((d.conflictDetails || []).map((c: { claimedBy: string }) => c.claimedBy))]
         toast.error(`⚠️ Semua data sudah di-claim oleh ${claimers.join(', ')}! Data mungkin sudah diambil oleh device lain.`, { duration: 8000 })
         setSelectedSaleIds(new Set())
@@ -541,7 +777,6 @@ export default function Home() {
       }
 
       if (d.code === 'PARTIAL_CONFLICT') {
-        // Some sales claimed successfully, some conflicted
         const claimers = [...new Set((d.conflictDetails || []).map((c: { claimedBy: string }) => c.claimedBy))]
         toast.warning(
           `⚡ ${d.claimedCount} berhasil, ${d.conflictCount} sudah di-claim ${claimers.join(', ')} — kemungkinan claim bersamaan dari device lain`,
@@ -556,11 +791,11 @@ export default function Home() {
       }
 
       if (d.error) {
-        // Network error or server error — retry with exponential backoff (max 2 retries)
         if (retryCount < 2 && !r.ok) {
-          const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s
+          const delay = Math.pow(2, retryCount) * 1000
           toast.info(`⏳ Retry ${retryCount + 1} setelah ${delay / 1000}s... (jaringan lambat)`, { duration: delay })
           setClaiming(false)
+          setBulkClaimProgress(0)
           await new Promise(resolve => setTimeout(resolve, delay))
           return handleClaimSales(retryCount + 1)
         }
@@ -569,6 +804,7 @@ export default function Home() {
       }
 
       // Full success
+      setBulkClaimProgress(100)
       toast.success(`✅ ${d.claimedCount || 0} data berhasil di-claim ke ${crew.name} (${fmtRp(d.totalSettle || 0)})`)
       setSelectedSaleIds(new Set())
       setClaimCrewSearch('')
@@ -576,15 +812,15 @@ export default function Home() {
       fetchClaims(claimPage)
       fetchDashboard()
     } catch {
-      // Network failure — retry once
       if (retryCount < 1) {
         toast.info('⏳ Koneksi gagal, mencoba lagi...')
         setClaiming(false)
+        setBulkClaimProgress(0)
         await new Promise(resolve => setTimeout(resolve, 1500))
         return handleClaimSales(retryCount + 1)
       }
       toast.error('❌ Gagal meng-claim data. Periksa koneksi internet dan coba lagi.')
-    } finally { setClaiming(false) }
+    } finally { setClaiming(false); setTimeout(() => setBulkClaimProgress(0), 500) }
   }
 
   const handleUnclaimSale = async (saleId: string) => {
@@ -722,14 +958,20 @@ export default function Home() {
   const claimStats = useMemo(() => {
     const unclaimedInPage = claimSales.filter(s => !s.crew)
     const claimedInPage = claimSales.filter(s => !!s.crew)
+    // Use overview (all-page aggregates) when available, fall back to page-only counts
+    const unclaimedCount = claimOverview?.unclaimedCount ?? unclaimedInPage.length
+    const claimedCount = claimOverview?.claimedCount ?? claimedInPage.length
+    const unclaimedSettle = claimOverview?.unclaimedSettle ?? unclaimedInPage.reduce((sum, s) => sum + s.settle, 0)
+    const claimedSettle = claimOverview?.claimedSettle ?? claimedInPage.reduce((sum, s) => sum + s.settle, 0)
+    const todayActivity = claimOverview?.todayActivity ?? claimSales.filter(s => s.claimedAt && s.claimedAt.startsWith(todayStr)).length
     return {
-      unclaimedCount: unclaimedInPage.length,
-      claimedCount: claimedInPage.length,
-      unclaimedSettle: unclaimedInPage.reduce((sum, s) => sum + s.settle, 0),
-      claimedSettle: claimedInPage.reduce((sum, s) => sum + s.settle, 0),
-      todayActivity: claimSales.filter(s => s.claimedAt && s.claimedAt.startsWith(todayStr)).length,
+      unclaimedCount,
+      claimedCount,
+      unclaimedSettle,
+      claimedSettle,
+      todayActivity,
     }
-  }, [claimSales, todayStr])
+  }, [claimSales, todayStr, claimOverview])
 
   const selectedItemsTotal = useMemo(() => {
     return claimSales.filter(s => selectedSaleIds.has(s.id)).reduce((sum, s) => sum + s.settle, 0)
@@ -845,6 +1087,28 @@ export default function Home() {
     } catch { toast.error('Gagal mengekspor data') }
   }
 
+  const handleExportExcel = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (claimDateFrom) params.set('dateFrom', claimDateFrom)
+      if (claimDateTo) params.set('dateTo', claimDateTo)
+      if (claimFilterProgram) params.set('program', claimFilterProgram)
+      if (claimFilterCrew) params.set('crewId', claimFilterCrew)
+      if (claimShowClaimed !== 'all') params.set('claimed', claimShowClaimed === 'claimed' ? 'true' : 'false')
+      if (claimSearch) params.set('search', claimSearch)
+      const url = `/api/export/excel${params.toString() ? '?' + params.toString() : ''}`
+      const r = await fetch(url)
+      if (!r.ok) { const d = await r.json().catch(() => ({})); toast.error(d.error || 'Gagal mengekspor data'); return }
+      const blob = await r.blob()
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = `laporan-penjualan-${getWIBToday()}.xlsx`
+      link.click()
+      URL.revokeObjectURL(link.href)
+      toast.success('Data berhasil diekspor ke Excel (.xlsx)')
+    } catch { toast.error('Gagal mengekspor data') }
+  }
+
   // ─── Render Helpers ───────────────────────────────────
   const wibDate = getWIBDate()
   const dateStr = `${dayNames[wibDate.getDay()]}, ${wibDate.getDate()} ${monthNames[wibDate.getMonth()]} ${wibDate.getFullYear()}`
@@ -910,11 +1174,75 @@ export default function Home() {
 
                 {/* Right actions */}
                 <div className="flex items-center gap-1.5 sm:gap-2">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-muted" onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
+                  {/* Live Clock */}
+                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/50 border border-border/50 text-xs font-mono tabular-nums text-muted-foreground">
+                    <Clock className="w-3 h-3" />
+                    <span className="font-semibold text-foreground">{currentTime}</span>
+                    <span className="text-[9px]">WIB</span>
+                  </div>
+
+                  {/* Notifications */}
+                  <div className="relative" data-notif-dropdown>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-muted relative" onClick={() => setShowNotif(!showNotif)}>
+                      <Bell className="w-4 h-4" />
+                      {dashboard?.recentSales && dashboard.recentSales.length > 0 && (
+                        <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-background" />
+                      )}
+                    </Button>
+                    <AnimatePresence>
+                      {showNotif && (
+                        <>
+                          {/* Mobile backdrop */}
+                          <div className="sm:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setShowNotif(false)} />
+                          <motion.div
+                            initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="z-50 overflow-hidden rounded-xl border bg-white dark:bg-gray-900 shadow-2xl sm:absolute sm:right-0 sm:top-full sm:mt-2 sm:w-96 fixed inset-x-0 top-0 sm:inset-auto"
+                        >
+                          <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+                            <div className="flex items-center gap-2">
+                              <Bell className="w-4 h-4 text-emerald-500" />
+                              <span className="text-sm font-semibold">Aktivitas Terbaru</span>
+                            </div>
+                            <button onClick={() => setShowNotif(false)} className="text-muted-foreground hover:text-foreground">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <div className="max-h-72 overflow-y-auto">
+                            {dashboard?.recentSales && dashboard.recentSales.length > 0 ? (
+                              dashboard.recentSales.slice(0, 5).map((sale, i) => (
+                                <div key={sale.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors border-b last:border-b-0">
+                                  <Avatar className="w-7 h-7 shrink-0">
+                                    <AvatarImage src={sale.crew?.photo || ''} />
+                                    <AvatarFallback className="text-[10px]">{(sale.crew?.name || '?')[0]}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium truncate">{sale.crew?.name || 'Unknown'}</p>
+                                    <p className="text-[10px] text-muted-foreground truncate">{sale.kodeExtend} • {sale.tanggal}</p>
+                                  </div>
+                                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{fmtRp(sale.settle)}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="py-8 text-center">
+                                <Clock className="w-8 h-8 mx-auto mb-2 text-muted-foreground/30" />
+                                <p className="text-xs text-muted-foreground">Belum ada aktivitas</p>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-amber-50 dark:hover:bg-gray-800 transition-colors" onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')} title={mounted ? (resolvedTheme === 'dark' ? 'Mode Terang' : 'Mode Gelap') : undefined}>
                     {mounted ? (
-                      <motion.span key={resolvedTheme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.2 }}>
-                        {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                      </motion.span>
+                      <motion.div key={resolvedTheme} initial={{ rotate: -90, scale: 0.5, opacity: 0 }} animate={{ rotate: 0, scale: 1, opacity: 1 }} exit={{ rotate: 90, scale: 0.5, opacity: 0 }} transition={{ duration: 0.3, type: 'spring', stiffness: 200, damping: 15 }}>
+                        {resolvedTheme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+                      </motion.div>
                     ) : (
                       <div className="w-4 h-4" />
                     )}
@@ -964,35 +1292,38 @@ export default function Home() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
             {/* ─── Dashboard Tab ────────────────────────── */}
-            <TabsContent value="dashboard" className="mt-4 sm:mt-6 pb-8">
+            <TabsContent value="dashboard" className="mt-4 sm:mt-6 pb-8" forceMount style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
+              <AnimatePresence mode="wait">
+                {activeTab === 'dashboard' && (
+                  <motion.div key="dashboard" {...tabTransition}>
               {dashLoading ? (
                 <div className="space-y-6 animate-pulse">
                   {/* Skeleton Summary Cards */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                     {Array.from({ length: 4 }).map((_, i) => (
-                      <div key={i} className="p-4 sm:p-6 rounded-xl border bg-white dark:bg-gray-900">
-                        <div className="h-3 bg-muted rounded-full w-3/4 mb-3" />
-                        <div className="h-7 bg-muted rounded-full w-2/3 mb-2" />
-                        <div className="h-2.5 bg-muted rounded-full w-1/2" />
+                      <div key={i} className="p-4 sm:p-6 rounded-xl border bg-white dark:bg-gray-900 card-hover-glow">
+                        <div className="h-3 skeleton-shimmer-premium w-3/4 mb-3" />
+                        <div className="h-7 skeleton-shimmer-premium w-2/3 mb-2" />
+                        <div className="h-2.5 skeleton-shimmer-premium w-1/2" />
                       </div>
                     ))}
                   </div>
                   {/* Skeleton Podium */}
                   <div className="p-6 rounded-xl border bg-white dark:bg-gray-900">
-                    <div className="h-4 bg-muted rounded-full w-40 mb-6" />
+                    <div className="h-4 skeleton-shimmer-premium w-40 mb-6" />
                     <div className="flex items-end justify-center gap-3 sm:gap-6 pb-4">
                       {['h-28 sm:h-36', 'h-36 sm:h-48', 'h-24 sm:h-32'].map((h, i) => (
                         <div key={i} className="flex flex-col items-center">
-                          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-muted mb-2" />
-                          <div className="h-3 bg-muted rounded-full w-16 mb-2" />
-                          <div className={`w-20 sm:w-28 ${h} rounded-t-xl bg-muted`} />
+                          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full skeleton-shimmer-premium mb-2" />
+                          <div className="h-3 skeleton-shimmer-premium w-16 mb-2" />
+                          <div className={`w-20 sm:w-28 ${h} rounded-t-xl skeleton-shimmer-premium`} />
                         </div>
                       ))}
                     </div>
                   </div>
                   {/* Skeleton Table Rows */}
                   <div className="p-6 rounded-xl border bg-white dark:bg-gray-900 space-y-3">
-                    <div className="h-4 bg-muted rounded-full w-48 mb-4" />
+                    <div className="h-4 skeleton-shimmer-premium w-48 mb-4" />
                     <table className="w-full">
                       <tbody>
                         {Array.from({ length: 4 }).map((_, i) => (
@@ -1004,6 +1335,38 @@ export default function Home() {
                 </div>
               ) : dashboard ? (
                 <motion.div {...stagger} className="space-y-6">
+                  {/* Welcome Back Section */}
+                  {isAdmin && (
+                    <motion.div {...fadeIn} transition={{ delay: 0 }}>
+                      <Card className="border-0 shadow-lg overflow-hidden relative card-scale-hover">
+                        <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-700 animate-gradient-bg dark:from-emerald-800 dark:via-teal-700 dark:to-emerald-900" />
+                        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
+                        <CardContent className="p-4 sm:p-6 relative z-10">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div>
+                              <h2 className="text-lg sm:text-xl font-bold text-white">Selamat datang, Admin!</h2>
+                              <p className="text-emerald-100 text-sm mt-1">{dateStr} — {currentTime} WIB</p>
+                            </div>
+                            <div className="flex gap-2 sm:gap-3 flex-wrap">
+                              <div className="flex-1 sm:flex-initial px-3 sm:px-4 py-2.5 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 min-w-[100px]">
+                                <p className="text-[10px] text-emerald-100 uppercase tracking-wider font-medium">Transaksi Hari Ini</p>
+                                <p className="text-lg font-bold text-white tabular-nums">{dashboard.crewStats.reduce((s, c) => s + c.todayStruk, 0)}</p>
+                              </div>
+                              <div className="flex-1 sm:flex-initial px-3 sm:px-4 py-2.5 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 min-w-[120px]">
+                                <p className="text-[10px] text-emerald-100 uppercase tracking-wider font-medium">Total Bulan Ini</p>
+                                <p className="text-lg font-bold text-white tabular-nums">{fmtRp(dashboard.totals.month)}</p>
+                              </div>
+                              <div className="flex-1 sm:flex-initial px-3 sm:px-4 py-2.5 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 min-w-[100px]">
+                                <p className="text-[10px] text-emerald-100 uppercase tracking-wider font-medium">Qty Bulan Ini</p>
+                                <p className="text-lg font-bold text-white tabular-nums">{fmtNum(dashboard.totals.monthQty)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  )}
+
                   {/* Summary Cards */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                     {[
@@ -1013,8 +1376,10 @@ export default function Home() {
                       { label: 'Total Transaksi', value: dashboard.crewStats.reduce((s, c) => s + c.transactionCount, 0), qty: 0, icon: ShoppingCart, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', trend: null },
                     ].map((card, i) => (
                       <motion.div key={i} {...fadeIn} transition={{ delay: i * 0.1 }} whileHover={{ y: -3, transition: { type: 'spring', stiffness: 300 } }}>
-                        <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 group cursor-default card-hover-glow">
+                        <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 group cursor-default card-hover-glow card-scale-hover">
                           <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-300`} />
+                          {/* Animated gradient top bar */}
+                          <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${card.gradient} opacity-60 group-hover:opacity-100 transition-opacity duration-300`} />
                           <CardContent className="p-4 sm:p-6 relative">
                             <div className="flex items-start justify-between">
                               <div className="space-y-1.5 min-w-0 flex-1">
@@ -1038,7 +1403,7 @@ export default function Home() {
                                   </p>
                                 )}
                               </div>
-                              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.gradient} ${card.shadow} shadow-lg flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
+                              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.gradient} ${card.shadow} shadow-lg flex items-center justify-center group-hover:scale-110 group-hover:shadow-xl transition-all duration-300`}>
                                 <card.icon className="w-5 h-5 text-white" />
                               </div>
                             </div>
@@ -1048,9 +1413,67 @@ export default function Home() {
                     ))}
                   </div>
 
+                  {/* Today's Highlight Summary Cards */}
+                  <motion.div {...fadeIn} transition={{ delay: 0.2 }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      <Card className="border-0 shadow-md overflow-hidden relative group cursor-default card-scale-hover">
+                        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-sky-600 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity" />
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-sky-600 opacity-50 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 relative">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-sky-600 shadow-lg shadow-cyan-500/20 flex items-center justify-center shrink-0">
+                              <ShoppingCart className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Transaction Hari Ini</p>
+                              <p className="text-xl font-bold tabular-nums">{dashboard.crewStats.reduce((s, c) => s + c.todayStruk, 0)} <span className="text-xs font-normal text-muted-foreground">struk</span></p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-0 shadow-md overflow-hidden relative group cursor-default card-scale-hover">
+                        <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-purple-600 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity" />
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 to-purple-600 opacity-50 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 relative">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/20 flex items-center justify-center shrink-0">
+                              <Package className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Average Basket Size</p>
+                              <p className="text-xl font-bold tabular-nums">
+                                {(() => {
+                                  const totalStruk = dashboard.crewStats.reduce((s, c) => s + c.todayStruk, 0)
+                                  const totalQty = dashboard.crewStats.reduce((s, c) => s + c.todayQty, 0)
+                                  return totalStruk > 0 ? (totalQty / totalStruk).toFixed(1) : '0'
+                                })()} <span className="text-xs font-normal text-muted-foreground">qty/struk</span>
+                              </p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-0 shadow-md overflow-hidden relative group cursor-default card-scale-hover">
+                        <div className="absolute inset-0 bg-gradient-to-br from-amber-500 to-orange-600 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity" />
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-orange-600 opacity-50 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 relative">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/20 flex items-center justify-center shrink-0">
+                              <Flame className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Top Performer</p>
+                              <p className="text-xl font-bold">{dashboard.topCrews[0]?.name?.split(' ')[0] || '-'}</p>
+                              <p className="text-xs text-muted-foreground">{fmtRp(dashboard.topCrews[0]?.todayTotal || 0)}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </motion.div>
+
                   {/* Top Crew Leaderboard */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.3 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden">
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.05 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
@@ -1107,6 +1530,7 @@ export default function Home() {
                                 const crew = dashboard.topCrews[1]
                                 const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                 const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
                                 return (
                                   <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, type: 'spring', stiffness: 180 }}
                                     className="flex flex-col items-center flex-1 max-w-[150px]">
@@ -1130,7 +1554,10 @@ export default function Home() {
                                       <span className="relative z-10 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-300 bg-gray-200/70 dark:bg-gray-700/60 px-2 py-0.5 rounded-full">Juara 2</span>
                                       <div className="relative z-10 flex flex-col items-center">
                                         <span className="text-[10px] sm:text-xs font-bold text-gray-700 dark:text-gray-200">{fmtRp(periodVal)}</span>
-                                        <span className="text-[9px] text-gray-500 dark:text-gray-400">{fmtNum(periodQty)} qty</span>
+                                        <span className="text-[9px] text-gray-500 dark:text-gray-400">{fmtNum(periodStruk)} struk · {fmtNum(periodQty)} qty</span>
+                                        {crew.crewMonthlyTarget > 0 && (
+                                          <span className={`text-[8px] sm:text-[9px] font-semibold mt-0.5 ${getAchievementColor(crew.weeklyAchievement).text}`}>🎯 Target: {Math.round(crew.weeklyAchievement)}%</span>
+                                        )}
                                       </div>
                                     </div>
                                   </motion.div>
@@ -1142,6 +1569,7 @@ export default function Home() {
                                 const crew = dashboard.topCrews[0]
                                 const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                 const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
                                 return (
                                   <motion.div initial={{ opacity: 0, scale: 0.8, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ delay: 0.1, type: 'spring', stiffness: 150, damping: 12 }}
                                     className="flex flex-col items-center flex-1 max-w-[170px]">
@@ -1172,7 +1600,10 @@ export default function Home() {
                                       <span className="relative z-10 text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-200 bg-white/70 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full shadow-sm">Juara 1</span>
                                       <div className="relative z-10 flex flex-col items-center">
                                         <span className="text-xs sm:text-sm font-bold text-white drop-shadow">{fmtRp(periodVal)}</span>
-                                        <span className="text-[9px] text-amber-100">{fmtNum(periodQty)} qty</span>
+                                        <span className="text-[9px] text-amber-100">{fmtNum(periodStruk)} struk · {fmtNum(periodQty)} qty</span>
+                                        {crew.crewMonthlyTarget > 0 && (
+                                          <span className={`text-[8px] sm:text-[9px] font-semibold mt-0.5 ${crew.weeklyAchievement >= 100 ? 'text-teal-200' : 'text-amber-200'}`}>🎯 Target: {Math.round(crew.weeklyAchievement)}%</span>
+                                        )}
                                       </div>
                                     </div>
                                   </motion.div>
@@ -1184,6 +1615,7 @@ export default function Home() {
                                 const crew = dashboard.topCrews[2]
                                 const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                 const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
                                 return (
                                   <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, type: 'spring', stiffness: 180 }}
                                     className="flex flex-col items-center flex-1 max-w-[150px]">
@@ -1207,7 +1639,10 @@ export default function Home() {
                                       <span className="relative z-10 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-200 bg-orange-100/70 dark:bg-orange-900/50 px-2 py-0.5 rounded-full">Juara 3</span>
                                       <div className="relative z-10 flex flex-col items-center">
                                         <span className="text-[10px] sm:text-xs font-bold text-orange-800 dark:text-orange-100">{fmtRp(periodVal)}</span>
-                                        <span className="text-[9px] text-orange-600 dark:text-orange-300">{fmtNum(periodQty)} qty</span>
+                                        <span className="text-[9px] text-orange-600 dark:text-orange-300">{fmtNum(periodStruk)} struk · {fmtNum(periodQty)} qty</span>
+                                        {crew.crewMonthlyTarget > 0 && (
+                                          <span className={`text-[8px] sm:text-[9px] font-semibold mt-0.5 ${getAchievementColor(crew.weeklyAchievement).text}`}>🎯 Target: {Math.round(crew.weeklyAchievement)}%</span>
+                                        )}
                                       </div>
                                     </div>
                                   </motion.div>
@@ -1261,6 +1696,7 @@ export default function Home() {
                               {dashboard.crewStats.map((crew, idx) => {
                                 const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                 const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
                                 const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
                                 const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
                                 const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
@@ -1289,7 +1725,12 @@ export default function Home() {
                                       </div>
                                       <div className="text-right shrink-0 pl-2">
                                         <p className={`text-xs font-bold ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{fmtRp(periodVal)}</p>
-                                        <p className="text-[10px] text-muted-foreground">{fmtNum(periodQty)} qty</p>
+                                        <p className="text-[10px] text-muted-foreground">{fmtNum(periodStruk)} struk · {fmtNum(periodQty)} qty</p>
+                                        {crew.crewMonthlyTarget > 0 && (
+                                          <Badge variant="outline" className={`text-[9px] mt-0.5 px-1.5 py-0 border-0 ${getAchievementColor(crew.weeklyAchievement).bg} ${getAchievementColor(crew.weeklyAchievement).text}`}>
+                                            🎯 {Math.round(crew.weeklyAchievement)}%
+                                          </Badge>
+                                        )}
                                       </div>
                                     </div>
                                   </motion.div>
@@ -1298,14 +1739,16 @@ export default function Home() {
                             </div>
                             {/* Desktop Table View */}
                             <div className="hidden md:block max-h-80 overflow-y-auto">
-                              <Table className="table-stripe table-sticky-head">
+                              <Table className="table-stripe table-sticky-head table-row-hover">
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent">
                                     <TableHead className="w-12 text-center">#</TableHead>
                                     <TableHead>Crew</TableHead>
                                     <TableHead>Group</TableHead>
+                                    <TableHead className="text-center">Struk</TableHead>
                                     <TableHead className="text-center">Qty</TableHead>
                                     <TableHead className="w-[200px]">Kontribusi</TableHead>
+                                    <TableHead className="w-[100px] text-center">Target</TableHead>
                                     <TableHead className="text-right">Penjualan</TableHead>
                                   </TableRow>
                                 </TableHeader>
@@ -1313,6 +1756,7 @@ export default function Home() {
                                   {dashboard.crewStats.map((crew, idx) => {
                                     const periodVal = dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
                                     const periodQty = dashPeriod === 'today' ? crew.todayQty : dashPeriod === 'week' ? crew.weekQty : crew.monthQty
+                                    const periodStruk = dashPeriod === 'today' ? crew.todayStruk : dashPeriod === 'week' ? crew.weekStruk : crew.monthStruk
                                     const maxVal = dashboard.crewStats[0] ? (dashPeriod === 'today' ? dashboard.crewStats[0].todayTotal : dashPeriod === 'week' ? dashboard.crewStats[0].weekTotal : dashboard.crewStats[0].monthTotal) : 1
                                     const pct = maxVal > 0 ? Math.round((periodVal / maxVal) * 100) : 0
                                     const rankMedal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
@@ -1338,6 +1782,7 @@ export default function Home() {
                                         <TableCell>
                                           <Badge variant="outline" className="text-[10px] font-normal">{crew.groupName}</Badge>
                                         </TableCell>
+                                        <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodStruk)}</TableCell>
                                         <TableCell className="text-center text-sm tabular-nums">{fmtNum(periodQty)}</TableCell>
                                         <TableCell>
                                           <div className="flex items-center gap-2">
@@ -1347,6 +1792,17 @@ export default function Home() {
                                             </div>
                                             <span className="text-[10px] text-muted-foreground tabular-nums w-8 text-right">{pct}%</span>
                                           </div>
+                                        </TableCell>
+                                        <TableCell className="text-center">
+                                          {crew.crewMonthlyTarget > 0 ? (() => {
+                                            const achColor = getAchievementColor(crew.weeklyAchievement)
+                                            return (
+                                              <div className="flex flex-col items-center gap-1">
+                                                <CircularProgress value={Math.min(crew.weeklyAchievement, 999)} size={38} strokeWidth={4} />
+                                                <span className={`text-[9px] font-semibold ${achColor.text}`}>{Math.round(crew.weeklyAchievement)}%</span>
+                                              </div>
+                                            )
+                                          })() : <span className="text-[10px] text-muted-foreground">—</span>}
                                         </TableCell>
                                         <TableCell className="text-right">
                                           <span className={`font-semibold tabular-nums ${idx < 3 ? 'text-amber-700 dark:text-amber-400' : ''}`}>{fmtRp(periodVal)}</span>
@@ -1363,8 +1819,284 @@ export default function Home() {
                     </Card>
                   </motion.div>
 
+                  {/* ─── Crew Target Achievement Cards ─── */}
+                  {dashboard.crewStats.length > 0 && dashboard.crewStats.some(c => c.crewMonthlyTarget > 0) && (
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.07 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                              <Target className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <CardTitle className="text-base leading-tight">Target Crew</CardTitle>
+                              <p className="text-[10px] text-muted-foreground">Pencapaian target individual per kru</p>
+                            </div>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {dashboard.crewStats.filter(c => c.crewMonthlyTarget > 0).map((crew, idx) => {
+                            const mColor = getAchievementColor(crew.monthlyAchievement)
+                            const wColor = getAchievementColor(crew.weeklyAchievement)
+                            const currentWeek = dashboard.dateInfo.currentWeek
+                            return (
+                              <motion.div key={crew.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.04 }}
+                                className="rounded-xl border p-3 bg-white dark:bg-gray-900 hover:shadow-md transition-shadow">
+                                {/* Header: Avatar + Name + Group */}
+                                <div className="flex items-center gap-2.5 mb-3">
+                                  <Avatar className="w-9 h-9 shrink-0">
+                                    <AvatarImage src={crew.photo || ''} />
+                                    <AvatarFallback className="text-[10px] bg-gradient-to-br from-emerald-400 to-teal-600 text-white">
+                                      {crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold truncate">{crew.name}</p>
+                                    <p className="text-[10px] text-muted-foreground truncate">{crew.groupName}</p>
+                                  </div>
+                                  {/* Over target badge */}
+                                  {crew.monthlyAchievement >= 100 && (
+                                    <Badge className="text-[9px] px-1.5 py-0 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
+                                      OVER TARGET 🎉
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                {/* Monthly Target */}
+                                <div className="mb-2.5">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[10px] text-muted-foreground font-medium">Target Bulanan</span>
+                                    <span className="text-[10px] text-muted-foreground">{fmtRp(crew.crewMonthlyTarget)}</span>
+                                  </div>
+                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(crew.monthlyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut', delay: idx * 0.04 }}
+                                      className={`h-full rounded-full ${mColor.bar}`} />
+                                  </div>
+                                  <div className="flex items-center justify-between mt-0.5">
+                                    <span className={`text-[10px] font-bold ${mColor.text}`}>{Math.round(crew.monthlyAchievement)}%</span>
+                                    <span className="text-[10px] text-muted-foreground tabular-nums">{fmtRp(crew.monthTotal)}</span>
+                                  </div>
+                                </div>
+
+                                {/* Weekly Target */}
+                                <div className="mb-2.5">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[10px] text-muted-foreground font-medium">Target Minggu {currentWeek}</span>
+                                    <span className="text-[10px] text-muted-foreground">{fmtRp(crew.crewWeeklyTarget)}</span>
+                                  </div>
+                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(crew.weeklyAchievement, 100)}%` }} transition={{ duration: 1, ease: 'easeOut', delay: idx * 0.04 + 0.1 }}
+                                      className={`h-full rounded-full ${wColor.bar}`} />
+                                  </div>
+                                  <div className="flex items-center justify-between mt-0.5">
+                                    <span className={`text-[10px] font-bold ${wColor.text}`}>{Math.round(crew.weeklyAchievement)}%</span>
+                                    <span className="text-[10px] text-muted-foreground tabular-nums">{fmtRp(crew.weekTotal)}</span>
+                                  </div>
+                                </div>
+
+                                {/* Week Breakdown (tiny bars) */}
+                                <div className="flex gap-1 items-end">
+                                  {crew.weekTargets.map((wt, wIdx) => {
+                                    const maxWt = Math.max(...crew.weekTargets, 1)
+                                    const hPct = Math.round((wt / maxWt) * 100)
+                                    const isCurrentWeek = wIdx + 1 === currentWeek
+                                    return (
+                                      <div key={wIdx} className="flex-1 flex flex-col items-center gap-0.5">
+                                        <span className="text-[7px] text-muted-foreground tabular-nums leading-none">{fmtNum(Math.round(wt / 1000000))}jt</span>
+                                        <div className={`w-full rounded-sm transition-all ${isCurrentWeek ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-muted'}`}
+                                          style={{ height: `${Math.max(hPct, 8)}%`, minHeight: '6px' }} />
+                                        <span className={`text-[7px] ${isCurrentWeek ? 'font-bold text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                                          W{wIdx + 1}
+                                        </span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </motion.div>
+                            )
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                  )}
+
+                  {/* Recent Activity Feed — Dashboard Widget */}
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.08 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center shadow-md shadow-cyan-500/20">
+                              <Clock className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <CardTitle className="text-base leading-tight">Aktivitas Terbaru</CardTitle>
+                              <p className="text-[10px] text-muted-foreground">Log aktivitas sistem</p>
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fetchActivityLogs()} title="Refresh">
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {activityLogs.length === 0 ? (
+                          <div className="text-center py-8">
+                            <motion.div animate={{ y: [0, -5, 0] }} transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                              className="w-14 h-14 mx-auto mb-3 rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 dark:from-cyan-950/40 dark:to-teal-950/40 flex items-center justify-center">
+                              <Activity className="w-7 h-7 text-cyan-400 dark:text-cyan-600" />
+                            </motion.div>
+                            <p className="text-sm font-medium text-muted-foreground">Belum ada aktivitas</p>
+                            <p className="text-xs text-muted-foreground/60 mt-1">Aktivitas akan muncul saat ada aksi</p>
+                          </div>
+                        ) : (
+                          <div className="max-h-72 overflow-y-auto space-y-1">
+                            {activityLogs.map((log, idx) => {
+                              const actionConfig: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
+                                CLAIM: { icon: <UserCheck className="w-3.5 h-3.5" />, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' },
+                                BULK_CLAIM: { icon: <UserCheck className="w-3.5 h-3.5" />, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' },
+                                UPLOAD: { icon: <UploadCloud className="w-3.5 h-3.5" />, color: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-100 dark:bg-cyan-950/50' },
+                                EDIT: { icon: <Edit2 className="w-3.5 h-3.5" />, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-950/50' },
+                                DELETE: { icon: <Trash2 className="w-3.5 h-3.5" />, color: 'text-red-500 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-950/50' },
+                                UNCLAIM: { icon: <X className="w-3.5 h-3.5" />, color: 'text-orange-500 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-950/50' },
+                                BULK_DELETE: { icon: <Trash2 className="w-3.5 h-3.5" />, color: 'text-red-500 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-950/50' },
+                              }
+                              const config = actionConfig[log.action] || actionConfig.EDIT
+                              return (
+                                <motion.div key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}
+                                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors group">
+                                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${config.bg} ${config.color}`}>
+                                    {config.icon}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium truncate">{log.description}</p>
+                                    {log.crewName && <p className="text-[10px] text-muted-foreground truncate">Crew: {log.crewName}</p>}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">{timeAgo(log.createdAt)}</span>
+                                </motion.div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+
+                  {/* Department Distribution — Dashboard Widget */}
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.1 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-md shadow-violet-500/20">
+                              <Layers className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <CardTitle className="text-base leading-tight">Distribusi Departemen</CardTitle>
+                              <p className="text-[10px] text-muted-foreground">Bulan ini — {dashboard.dateInfo?.currentMonth ? monthNames[(dashboard.dateInfo.currentMonth || 1) - 1] : ''}</p>
+                            </div>
+                          </div>
+                          {dashboard.deptBreakdown && dashboard.deptBreakdown.length > 0 && (
+                            <Badge variant="outline" className="text-[10px]">{dashboard.deptBreakdown.length} dept</Badge>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {dashboard.deptBreakdown && dashboard.deptBreakdown.length > 0 ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Donut Chart */}
+                            <div className="flex items-center justify-center">
+                              <div className="relative w-full max-w-[220px]">
+                                <ResponsiveContainer width="100%" height={220}>
+                                  <PieChart>
+                                    <Pie
+                                      data={dashboard.deptBreakdown}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius={55}
+                                      outerRadius={90}
+                                      paddingAngle={2}
+                                      dataKey="totalSettle"
+                                      nameKey="dept"
+                                      stroke="none"
+                                    >
+                                      {dashboard.deptBreakdown.map((entry, index) => {
+                                        const deptIdx = deptColorMap.findIndex(c => c === getDeptColor(entry.dept))
+                                        const colors = ['#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#f43f5e', '#6366f1', '#14b8a6', '#f97316']
+                                        return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                                      })}
+                                    </Pie>
+                                    <Tooltip
+                                      formatter={(value: number, name: string) => [fmtRp(value), name]}
+                                      contentStyle={{ borderRadius: '12px', border: '1px solid oklch(0.9 0 0)', fontSize: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                    />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                                {/* Center label */}
+                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                  <p className="text-[10px] text-muted-foreground font-medium">Total</p>
+                                  <p className="text-sm font-extrabold text-foreground tabular-nums">{fmtRp(dashboard.deptBreakdown.reduce((s, x) => s + x.totalSettle, 0))}</p>
+                                </div>
+                              </div>
+                            </div>
+                            {/* Legend Bars */}
+                            <div className="space-y-2.5">
+                              {dashboard.deptBreakdown.slice(0, 6).map((d, idx) => {
+                                const maxSettle = dashboard.deptBreakdown[0]?.totalSettle || 1
+                                const pct = Math.round((d.totalSettle / maxSettle) * 100)
+                                const grandTotal = dashboard.deptBreakdown.reduce((s, x) => s + x.totalSettle, 0)
+                                const share = grandTotal > 0 ? ((d.totalSettle / grandTotal) * 100).toFixed(1) : '0'
+                                const color = getDeptColor(d.dept)
+                                const colors = ['#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#f43f5e', '#6366f1', '#14b8a6', '#f97316']
+                                return (
+                                  <div key={d.dept} className="group/dept">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-background ring-transparent group-hover/dept:ring-current/20 transition-all`} style={{ backgroundColor: colors[idx % colors.length] }} />
+                                        <span className="text-xs font-medium text-foreground truncate">{d.dept}</span>
+                                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{d.count} trx</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="text-xs font-bold text-foreground tabular-nums">{fmtRp(d.totalSettle)}</span>
+                                        <span className="text-[10px] text-muted-foreground tabular-nums w-10 text-right">{share}%</span>
+                                      </div>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-muted/60 rounded-full overflow-hidden">
+                                      <motion.div
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${pct}%` }}
+                                        transition={{ duration: 0.8, ease: 'easeOut', delay: idx * 0.08 }}
+                                        className="h-full rounded-full"
+                                        style={{ backgroundColor: colors[idx % colors.length] }}
+                                      />
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center py-6">
+                            <motion.div
+                              animate={{ y: [0, -6, 0] }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              className="inline-block"
+                            >
+                              <Layers className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />
+                            </motion.div>
+                            <p className="text-sm text-muted-foreground">Belum ada data departemen</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+
                   {/* Group Achievement Cards */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.4 }}>
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.1 }}>
                     <Card className="border-0 shadow-lg">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
@@ -1377,7 +2109,17 @@ export default function Home() {
                       </CardHeader>
                       <CardContent>
                         {dashboard.groupAchievements.length === 0 ? (
-                          <p className="text-center py-8 text-muted-foreground text-sm">Belum ada group</p>
+                          <div className="text-center py-10">
+                            <motion.div
+                              animate={{ y: [0, -6, 0] }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-950/40 dark:to-teal-950/40 flex items-center justify-center"
+                            >
+                              <Target className="w-8 h-8 text-emerald-400 dark:text-emerald-600" />
+                            </motion.div>
+                            <h3 className="text-sm font-bold text-foreground mb-1">Belum Ada Group</h3>
+                            <p className="text-xs text-muted-foreground max-w-[260px] mx-auto">Buat group/zoning terlebih dahulu di menu Management untuk tracking achievement</p>
+                          </div>
                         ) : (
                           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {dashboard.groupAchievements.map((g) => (
@@ -1445,8 +2187,8 @@ export default function Home() {
                   </motion.div>
 
                   {/* Sales Chart */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.5 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden">
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.1 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
                           <BarChart3 className="w-5 h-5 text-emerald-500" />
@@ -1462,28 +2204,55 @@ export default function Home() {
                                 value: dashPeriod === 'today' ? c.todayTotal : dashPeriod === 'week' ? c.weekTotal : c.monthTotal,
                                 qty: dashPeriod === 'today' ? c.todayQty : dashPeriod === 'week' ? c.weekQty : c.monthQty,
                               }))} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                                <defs>
+                                  <linearGradient id="barGradient0" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#059669" stopOpacity={1} />
+                                    <stop offset="100%" stopColor="#047857" stopOpacity={0.8} />
+                                  </linearGradient>
+                                  <linearGradient id="barGradient1" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#d97706" stopOpacity={1} />
+                                    <stop offset="100%" stopColor="#b45309" stopOpacity={0.8} />
+                                  </linearGradient>
+                                  <linearGradient id="barGradient2" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity={1} />
+                                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.8} />
+                                  </linearGradient>
+                                  <linearGradient id="barGradient3" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#0891b2" stopOpacity={1} />
+                                    <stop offset="100%" stopColor="#0e7490" stopOpacity={0.8} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" className="opacity-20" stroke="oklch(0.85 0 0)" />
                                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                                 <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(0)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : String(v)} />
-                                <Tooltip formatter={(value: number) => fmtRp(value)} labelStyle={{ fontWeight: 600 }} contentStyle={{ borderRadius: 12, border: '1px solid oklch(0.922 0 0)', fontSize: 12 }} />
+                                <Tooltip content={<ChartTooltip />} />
                                 <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={48}>
                                   {dashboard.crewStats.map((_, idx) => (
-                                    <Cell key={idx} fill={idx === 0 ? '#059669' : idx === 1 ? '#d97706' : idx === 2 ? '#8b5cf6' : idx === 3 ? '#0891b2' : '#6b7280'} />
+                                    <Cell key={idx} fill={`url(#barGradient${Math.min(idx, 3)})`} />
                                   ))}
                                 </Bar>
                               </BarChart>
                             </ResponsiveContainer>
                           </div>
                         ) : (
-                          <p className="text-center py-8 text-muted-foreground text-sm">Belum ada data</p>
+                          <div className="text-center py-8">
+                            <motion.div
+                              animate={{ y: [0, -6, 0] }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              className="inline-block"
+                            >
+                              <BarChart3 className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />
+                            </motion.div>
+                            <p className="text-sm text-muted-foreground">Belum ada data penjualan per crew</p>
+                          </div>
                         )}
                       </CardContent>
                     </Card>
                   </motion.div>
 
                   {/* Sales Trend Line Chart */}
-                  <motion.div {...fadeIn} transition={{ delay: 0.55 }}>
-                    <Card className="border-0 shadow-lg overflow-hidden">
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.15 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
                       <CardHeader className="pb-3">
                         <div className="flex items-center gap-2">
                           <TrendingUp className="w-5 h-5 text-emerald-500" />
@@ -1500,10 +2269,10 @@ export default function Home() {
                                 week: c.weekTotal,
                                 month: c.monthTotal,
                               }))} margin={{ top: 5, right: 5, left: -15, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                                <CartesianGrid strokeDasharray="3 3" className="opacity-20" stroke="oklch(0.85 0 0)" />
                                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                                 <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(0)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : String(v)} />
-                                <Tooltip formatter={(value: number) => fmtRp(value)} labelStyle={{ fontWeight: 600 }} contentStyle={{ borderRadius: 12, border: '1px solid oklch(0.922 0 0)', fontSize: 12 }} />
+                                <Tooltip content={<ChartTooltip />} />
                                 <Line type="monotone" dataKey="today" stroke="#059669" strokeWidth={2.5} dot={{ r: 4, fill: '#059669' }} activeDot={{ r: 6 }} name="Hari Ini" />
                                 <Line type="monotone" dataKey="week" stroke="#d97706" strokeWidth={2} dot={{ r: 3, fill: '#d97706' }} name="Minggu Ini" strokeDasharray="5 5" />
                                 <Line type="monotone" dataKey="month" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3, fill: '#8b5cf6' }} name="Bulan Ini" strokeDasharray="2 4" />
@@ -1511,8 +2280,93 @@ export default function Home() {
                             </ResponsiveContainer>
                           </div>
                         ) : (
-                          <p className="text-center py-8 text-muted-foreground text-sm">Belum ada data</p>
+                          <div className="text-center py-8">
+                            <motion.div
+                              animate={{ y: [0, -6, 0] }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              className="inline-block"
+                            >
+                              <TrendingUp className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />
+                            </motion.div>
+                            <p className="text-sm text-muted-foreground">Belum ada data tren</p>
+                          </div>
                         )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+
+                  {/* Department Distribution Widget */}
+                  <motion.div {...inViewFadeUp} transition={{ delay: 0.2 }}>
+                    <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-md shadow-violet-500/20">
+                            <Layers className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-base leading-tight">Distribusi per Departemen</CardTitle>
+                            <p className="text-[10px] text-muted-foreground">Penjualan berdasarkan departemen</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {(() => {
+                          // Calculate dept distribution from all claim sales data
+                          const deptMap: Record<string, { total: number; count: number }> = {}
+                          claimSales.forEach(s => {
+                            if (s.dept) {
+                              if (!deptMap[s.dept]) deptMap[s.dept] = { total: 0, count: 0 }
+                              deptMap[s.dept].total += s.settle
+                              deptMap[s.dept].count += 1
+                            }
+                          })
+                          const depts = Object.entries(deptMap).sort((a, b) => b[1].total - a[1].total)
+                          const maxTotal = depts.length > 0 ? depts[0][1].total : 1
+                          const grandTotal = depts.reduce((s, [, v]) => s + v.total, 0)
+                          return depts.length > 0 ? (
+                            <div className="space-y-3">
+                              {depts.map(([dept, data], idx) => {
+                                const pct = maxTotal > 0 ? Math.round((data.total / maxTotal) * 100) : 0
+                                const sharePct = grandTotal > 0 ? ((data.total / grandTotal) * 100).toFixed(1) : '0'
+                                const color = getDeptColor(dept)
+                                return (
+                                  <div key={dept} className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-2.5 h-2.5 rounded-full ${color} shrink-0`} />
+                                        <span className="text-xs font-medium text-foreground">{dept}</span>
+                                        <span className="text-[10px] text-muted-foreground">{data.count} item</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold tabular-nums">{fmtRp(data.total)}</span>
+                                        <span className="text-[10px] text-muted-foreground tabular-nums">{sharePct}%</span>
+                                      </div>
+                                    </div>
+                                    <div className="w-full h-2 bg-muted/50 rounded-full overflow-hidden">
+                                      <motion.div
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${pct}%` }}
+                                        transition={{ duration: 0.8, ease: 'easeOut', delay: idx * 0.1 }}
+                                        className={`h-full rounded-full ${color}`}
+                                      />
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-center py-6">
+                              <motion.div
+                                animate={{ y: [0, -6, 0] }}
+                                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                                className="inline-block"
+                              >
+                                <Layers className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />
+                              </motion.div>
+                              <p className="text-sm text-muted-foreground">Belum ada data departemen</p>
+                            </div>
+                          )
+                        })()}
                       </CardContent>
                     </Card>
                   </motion.div>
@@ -1564,14 +2418,19 @@ export default function Home() {
                   </motion.div>
                 </motion.div>
               ) : null}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </TabsContent>
-
             {/* ─── Claims Tab ───────────────────────────── */}
-            <TabsContent value="claims" className="mt-4 sm:mt-6 pb-8 overflow-hidden">
+            <TabsContent value="claims" className="mt-4 sm:mt-6 pb-8 overflow-hidden" forceMount style={{ display: activeTab === 'claims' ? 'block' : 'none' }}>
+              <AnimatePresence mode="wait">
+                {activeTab === 'claims' && (
+                  <motion.div key="claims" {...tabTransition}>
               <motion.div {...stagger} className="space-y-6">
                 {/* Upload Modal Dialog */}
-                <Dialog open={showUploadModal} onOpenChange={open => { setShowUploadModal(open); if (!open) { setUploadResult(null); setIsDragOver(false) } }}>
-                  <DialogContent className="sm:max-w-lg">
+                <Dialog open={showUploadModal} onOpenChange={open => { setShowUploadModal(open); if (!open) { setUploadResult(null); setPreviewFile(null); setIsDragOver(false) } }}>
+                  <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
@@ -1624,7 +2483,7 @@ export default function Home() {
                           </div>
                           <div className="w-full h-2 bg-emerald-100 dark:bg-emerald-900 rounded-full overflow-hidden">
                             <motion.div
-                              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
+                              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full progress-stripe"
                               initial={{ width: 0 }}
                               animate={{ width: `${Math.min(uploadProgress, 100)}%` }}
                               transition={{ duration: 0.3, ease: 'easeOut' }}
@@ -1671,12 +2530,109 @@ export default function Home() {
                           </div>
                         </motion.div>
                       )}
+                      {/* ── File Preview Section ── */}
+                      {previewFile && previewFile.rows.length > 0 && !uploading && (
+                        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Eye className="w-4 h-4 text-emerald-500" />
+                              <span className="text-xs font-semibold text-foreground">Preview Data</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-muted-foreground">{previewFile.name}</span>
+                              <span className="text-[10px] text-muted-foreground">({(previewFile.size / 1024).toFixed(1)} KB)</span>
+                              <Badge variant="outline" className="text-[10px]">{previewFile.rows.length} row</Badge>
+                            </div>
+                          </div>
+                          <div className="rounded-lg border overflow-hidden">
+                            <div className="max-h-48 overflow-y-auto">
+                              <table className="w-full text-xs">
+                                <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm">
+                                  <tr>
+                                    <th className="text-left px-2.5 py-1.5 font-semibold text-muted-foreground">Tanggal</th>
+                                    <th className="text-left px-2.5 py-1.5 font-semibold text-muted-foreground">Dept</th>
+                                    <th className="text-left px-2.5 py-1.5 font-semibold text-muted-foreground">Kode</th>
+                                    <th className="text-right px-2.5 py-1.5 font-semibold text-muted-foreground">Qty</th>
+                                    <th className="text-right px-2.5 py-1.5 font-semibold text-muted-foreground">Settle</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {previewFile.rows.slice(0, 10).map((row, i) => (
+                                    <tr key={i} className="hover:bg-muted/50 transition-colors">
+                                      <td className="px-2.5 py-1.5 whitespace-nowrap text-muted-foreground">{row.tanggal}</td>
+                                      <td className="px-2.5 py-1.5">
+                                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${getDeptColor(row.dept)} text-white`}>{row.dept || '-'}</span>
+                                      </td>
+                                      <td className="px-2.5 py-1.5 font-mono">{row.kodeExtend}</td>
+                                      <td className="px-2.5 py-1.5 text-right tabular-nums">{row.qty}</td>
+                                      <td className="px-2.5 py-1.5 text-right tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{fmtRp(row.settle)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            {previewFile.rows.length > 10 && (
+                              <div className="px-3 py-1.5 bg-muted/50 text-center">
+                                <span className="text-[10px] text-muted-foreground">+{previewFile.rows.length - 10} row lainnya...</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
+                            <span>Total preview: {fmtRp(previewFile.rows.reduce((s, r) => s + r.settle, 0))}</span>
+                            <span>{previewFile.rows.reduce((s, r) => s + r.qty, 0)} items</span>
+                          </div>
+                        </motion.div>
+                      )}
+                      {previewFile && previewFile.rows.length === 0 && !uploading && (
+                        <div className="text-center py-3 text-xs text-muted-foreground">
+                          <AlertCircle className="w-4 h-4 mx-auto mb-1 text-amber-500" />
+                          Tidak dapat membaca preview data dari file
+                        </div>
+                      )}
                     </div>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setShowUploadModal(false)}>Tutup</Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+
+                {/* ── Quick Stats Summary Bar ── */}
+                {claimTotal > 0 && !claimsLoading && (
+                  <motion.div {...fadeIn} transition={{ delay: 0.03 }}>
+                    <div className="sticky top-14 sm:top-16 z-30 -mx-3 sm:-mx-0 px-3 sm:px-0 py-2 bg-gradient-to-r from-gray-50/95 via-white/95 to-gray-50/95 dark:from-gray-950/95 dark:via-gray-900/95 dark:to-gray-950/95 backdrop-blur-xl border-b border-border/30 print-hide">
+                      <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+                        {/* Unclaimed count */}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 shrink-0">
+                          <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                            <AnimatedCounter value={claimStats.unclaimedCount} /> belum claim
+                          </span>
+                        </div>
+                        {/* Unclaimed value */}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 shrink-0">
+                          <DollarSign className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                            {fmtRp(claimStats.unclaimedSettle)}
+                          </span>
+                        </div>
+                        {/* Total data */}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/60 border border-border/40 shrink-0">
+                          <ShoppingCart className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            {fmtNum(claimTotal)} total
+                          </span>
+                        </div>
+                        {/* Today's claim activity */}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-800/40 shrink-0">
+                          <Flame className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                          <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-400">
+                            {claimStats.todayActivity} claim hari ini
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* ── Claim Stats Hero Section ── */}
                 {claimTotal > 0 && !claimsLoading && (
@@ -1739,6 +2695,62 @@ export default function Home() {
                   </motion.div>
                 )}
 
+                {/* ── Claim vs Unclaimed Progress Bar ── */}
+                {claimTotal > 0 && !claimsLoading && (claimStats.claimedCount + claimStats.unclaimedCount > 0) && (
+                  <motion.div {...fadeIn} transition={{ delay: 0.07 }}>
+                    <div className="rounded-xl border border-border/40 bg-white dark:bg-gray-900 p-4 shadow-sm">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Claim Progress</span>
+                        <span className="text-xs text-muted-foreground">
+                          {claimStats.claimedCount + claimStats.unclaimedCount} total
+                        </span>
+                      </div>
+                      <div className="w-full h-5 rounded-full overflow-hidden flex bg-gray-100 dark:bg-gray-800">
+                        <motion.div
+                          className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 flex items-center justify-center"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(claimStats.claimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100}%` }}
+                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+                          style={{ minWidth: claimStats.claimedCount > 0 ? '2rem' : '0' }}
+                        >
+                          {(claimStats.claimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100 > 10 && (
+                            <span className="text-[10px] font-bold text-white drop-shadow-sm">
+                              {Math.round((claimStats.claimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100)}%
+                            </span>
+                          )}
+                        </motion.div>
+                        <motion.div
+                          className="h-full bg-gradient-to-r from-amber-400 to-orange-500 flex items-center justify-center"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(claimStats.unclaimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100}%` }}
+                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.4 }}
+                          style={{ minWidth: claimStats.unclaimedCount > 0 ? '2rem' : '0' }}
+                        >
+                          {(claimStats.unclaimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100 > 10 && (
+                            <span className="text-[10px] font-bold text-white drop-shadow-sm">
+                              {Math.round((claimStats.unclaimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100)}%
+                            </span>
+                          )}
+                        </motion.div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600" />
+                          <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                            Sudah Claim: {fmtNum(claimStats.claimedCount)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                            Belum Claim: {fmtNum(claimStats.unclaimedCount)}
+                          </span>
+                          <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500" />
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Section 2: Summary Cards — Total Settle, Qty, Basket Size, Price Point */}
                 {claimSummary && claimTotal > 0 && !claimsLoading && (
                   <motion.div {...fadeIn} transition={{ delay: 0.1 }}>
@@ -1786,8 +2798,14 @@ export default function Home() {
                             <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md shadow-emerald-500/20" onClick={() => setShowUploadModal(true)}>
                               <UploadCloud className="w-3.5 h-3.5" /> Upload
                             </Button>
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30" onClick={() => window.print()}>
+                              <Printer className="w-3.5 h-3.5" /> Print
+                            </Button>
                             <Button variant="outline" size="sm" className="h-8 gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30" onClick={handleExport}>
-                              <Download className="w-3.5 h-3.5" /> Export CSV
+                              <Download className="w-3.5 h-3.5" /> CSV
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30" onClick={handleExportExcel}>
+                              <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
                             </Button>
                             {isAdmin && batchSelectedIds.size > 0 && (
                               <Button variant="destructive" size="sm" className="h-8 gap-1.5" onClick={() => setDeleteConfirm({ type: 'batch-sale', ids: Array.from(batchSelectedIds), name: `${batchSelectedIds.size} data terpilih` })}>
@@ -1846,9 +2864,25 @@ export default function Home() {
                           ))}
                         </div>
 
-                        {/* ─── MOBILE: Premium collapsible filter panel ─── */}
-                        <div className="sm:hidden">
-                          {/* Toggle button */}
+                        {/* ─── MOBILE: Premium filter panel ─── */}
+                        <div className="sm:hidden space-y-2.5">
+                          {/* Search — always visible */}
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              placeholder="Cari kode, brand, dept, crew..."
+                              value={claimSearchInput}
+                              onChange={e => setClaimSearchInput(e.target.value)}
+                              className="pl-9 h-10 w-full rounded-xl bg-white dark:bg-gray-900 border-border/60 text-sm"
+                            />
+                            {claimSearchInput && (
+                              <button onClick={() => { setClaimSearchInput(''); setClaimSearch('') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Filter toggle button */}
                           <button
                             onClick={() => setShowFilterPanel(!showFilterPanel)}
                             className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-gray-50 to-gray-100/80 dark:from-gray-900 dark:to-gray-800/80 border border-border/60 transition-all active:scale-[0.98]"
@@ -1857,21 +2891,19 @@ export default function Home() {
                               <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center">
                                 <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                               </div>
-                              <span className="text-xs font-semibold text-foreground">Filter & Pencarian</span>
-                            </div>
-                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-foreground">Filter Lanjutan</span>
                               {activeFilterCount > 0 && (
                                 <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">
                                   {activeFilterCount}
                                 </span>
                               )}
-                              <motion.div animate={{ rotate: showFilterPanel ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                                <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                              </motion.div>
                             </div>
+                            <motion.div animate={{ rotate: showFilterPanel ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                            </motion.div>
                           </button>
 
-                          {/* Expandable panel */}
+                          {/* Expandable advanced filter panel */}
                           <AnimatePresence>
                             {showFilterPanel && (
                               <motion.div
@@ -1881,23 +2913,7 @@ export default function Home() {
                                 transition={{ duration: 0.25, ease: 'easeInOut' }}
                                 className="overflow-hidden"
                               >
-                                <div className="pt-3 space-y-3">
-                                  {/* Search */}
-                                  <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                      placeholder="Cari kode, brand, dept, crew..."
-                                      value={claimSearch}
-                                      onChange={e => setClaimSearch(e.target.value)}
-                                      className="pl-9 h-10 w-full rounded-xl bg-white dark:bg-gray-900 border-border/60 text-sm"
-                                    />
-                                    {claimSearch && (
-                                      <button onClick={() => setClaimSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                                        <X className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                  </div>
-
+                                <div className="pt-1 space-y-3 filter-panel-backdrop">
                                   {/* Program & Crew side by side */}
                                   <div className="grid grid-cols-2 gap-2">
                                     <Select value={claimFilterProgram || '__all__'} onValueChange={v => setClaimFilterProgram(v === '__all__' ? '' : v)}>
@@ -1926,41 +2942,62 @@ export default function Home() {
                                     </Select>
                                   </div>
 
-                                  {/* Date range — each date in its own card row */}
-                                  <div className="space-y-2">
-                                    <div className="flex items-center gap-1.5 px-1">
-                                      <Calendar className="w-3 h-3 text-muted-foreground" />
-                                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Rentang Tanggal</span>
+                                  {/* Date range with clear visual cards */}
+                                  <div className="rounded-xl border border-border/60 bg-white/50 dark:bg-gray-900/50 p-3 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-1.5">
+                                        <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                                        <span className="text-xs font-semibold text-foreground">Rentang Tanggal</span>
+                                      </div>
+                                      {(claimDateFrom || claimDateTo) && (
+                                        <button
+                                          onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}
+                                          className="text-[10px] text-rose-500 dark:text-rose-400 font-medium flex items-center gap-0.5 active:opacity-70"
+                                        >
+                                          <X className="w-2.5 h-2.5" /> Reset
+                                        </button>
+                                      )}
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
-                                      <div className="space-y-1">
-                                        <span className="text-[10px] text-muted-foreground px-1">Dari</span>
+                                      <div>
+                                        <span className="text-[10px] text-muted-foreground mb-1 block px-0.5">Dari</span>
                                         <Input
                                           type="date"
                                           value={claimDateFrom}
                                           onChange={e => setClaimDateFrom(e.target.value)}
-                                          className="h-10 w-full text-xs rounded-xl bg-white dark:bg-gray-900 border-border/60"
+                                          className="h-10 w-full text-xs rounded-lg bg-gray-50 dark:bg-gray-800 border-border/60"
                                         />
                                       </div>
-                                      <div className="space-y-1">
-                                        <span className="text-[10px] text-muted-foreground px-1">Sampai</span>
+                                      <div>
+                                        <span className="text-[10px] text-muted-foreground mb-1 block px-0.5">Sampai</span>
                                         <Input
                                           type="date"
                                           value={claimDateTo}
                                           onChange={e => setClaimDateTo(e.target.value)}
-                                          className="h-10 w-full text-xs rounded-xl bg-white dark:bg-gray-900 border-border/60"
+                                          className="h-10 w-full text-xs rounded-lg bg-gray-50 dark:bg-gray-800 border-border/60"
                                         />
                                       </div>
                                     </div>
-                                    {(claimDateFrom || claimDateTo) && (
-                                      <button
-                                        onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}
-                                        className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium px-1 flex items-center gap-1 active:opacity-70"
-                                      >
-                                        <X className="w-2.5 h-2.5" /> Reset tanggal
-                                      </button>
-                                    )}
                                   </div>
+
+                                  {/* Reset all button */}
+                                  {activeFilterCount > 0 && (
+                                    <button
+                                      onClick={() => {
+                                        setClaimSearchInput('')
+                                        setClaimSearch('')
+                                        setClaimFilterProgram('')
+                                        setClaimFilterCrew('')
+                                        setClaimDateFrom('')
+                                        setClaimDateTo('')
+                                        setClaimShowClaimed('unclaimed')
+                                      }}
+                                      className="w-full py-2 text-xs font-medium text-muted-foreground flex items-center justify-center gap-1.5 active:text-foreground"
+                                    >
+                                      <RefreshCw className="w-3 h-3" />
+                                      Reset Semua Filter
+                                    </button>
+                                  )}
                                 </div>
                               </motion.div>
                             )}
@@ -1972,7 +3009,7 @@ export default function Home() {
                           {/* Search bar */}
                           <div className="relative">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Cari kode, brand, dept, crew..." value={claimSearch} onChange={e => { setClaimSearch(e.target.value) }}
+                            <Input placeholder="Cari kode, brand, dept, crew..." value={claimSearchInput} onChange={e => setClaimSearchInput(e.target.value)}
                               className="pl-9 h-9 w-full sm:w-72" />
                           </div>
                           {/* Filters row */}
@@ -2079,28 +3116,30 @@ export default function Home() {
                             <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Tidak ada data yang belum di-claim pada filter ini</p>
                           </div>
                         ) : claimShowClaimed === 'claimed' ? (
-                          <div className="text-center py-12">
-                            <motion.div
-                              animate={{ y: [0, -8, 0] }}
-                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                              className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-950/40 dark:to-orange-950/40 flex items-center justify-center"
-                            >
-                              <Clock className="w-10 h-10 text-amber-400 dark:text-amber-600" />
-                            </motion.div>
-                            <h3 className="text-base font-bold text-foreground mb-1">Belum Ada Data yang Di-claim</h3>
-                            <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Data penjualan yang sudah di-claim akan muncul di sini</p>
+                          <div className="empty-table-state">
+                            <div className="empty-icon">
+                              <motion.div
+                                animate={{ y: [0, -6, 0] }}
+                                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              >
+                                <Clock className="w-8 h-8 text-amber-500 dark:text-amber-400" />
+                              </motion.div>
+                            </div>
+                            <h3>Belum Ada Data yang Di-claim</h3>
+                            <p>Data penjualan yang sudah di-claim oleh crew akan muncul di sini</p>
                           </div>
                         ) : (
-                        <div className="text-center py-12">
-                          <motion.div
-                            animate={{ y: [0, -8, 0] }}
-                            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                            className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-amber-100 dark:from-emerald-950/40 dark:to-amber-950/40 flex items-center justify-center"
-                          >
-                            <FileSpreadsheet className="w-10 h-10 text-emerald-400 dark:text-emerald-600" />
-                          </motion.div>
-                          <h3 className="text-base font-bold text-foreground mb-1">Belum Ada Data Penjualan</h3>
-                          <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Upload file Excel pertama untuk melihat laporan di sini</p>
+                        <div className="empty-table-state">
+                          <div className="empty-icon">
+                            <motion.div
+                              animate={{ y: [0, -6, 0] }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                            >
+                              <FileSpreadsheet className="w-8 h-8 text-emerald-500 dark:text-emerald-400" />
+                            </motion.div>
+                          </div>
+                          <h3>Belum Ada Data Penjualan</h3>
+                          <p className="mb-4">Upload file Excel pertama untuk melihat laporan penjualan lengkap dengan filter, sorting, dan export</p>
                           <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950/30" onClick={() => setShowUploadModal(true)}>
                             <Upload className="w-3.5 h-3.5 mr-1.5" />Upload Penjualan
                           </Button>
@@ -2119,7 +3158,8 @@ export default function Home() {
                                   initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: Math.min(idx * 0.03, 0.3), duration: 0.3 }}
-                                  className={`sale-card shadow-sm border border-border/40 ${isClaimed ? 'sale-claimed' : ''} ${isSelected ? 'sale-selected' : ''}`}
+                                  className={`sale-card shadow-sm border border-border/40 ${isClaimed ? 'sale-claimed' : ''} ${isSelected ? 'sale-selected' : ''} ${sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) ? 'animate-recently-claimed' : ''}`}
+                                  onClick={() => setSaleDetailDialog(sale)}
                                 >
                                   <div className="p-4">
                                     {/* ── Top: Checkbox + Kode + Status ── */}
@@ -2153,8 +3193,8 @@ export default function Home() {
                                       </div>
                                       {/* Status pill */}
                                       {isClaimed ? (
-                                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 shrink-0">
-                                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                        <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 shrink-0 ${sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) ? 'animate-recently-claimed' : ''}`}>
+                                          <CheckCircle2 className={`w-3 h-3 text-emerald-500 ${sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) ? 'animate-pulse' : ''}`} />
                                           <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Claimed</span>
                                         </div>
                                       ) : (
@@ -2200,8 +3240,8 @@ export default function Home() {
                                           </span>
                                         )}
                                         {sale.pembayaran && (
-                                          <span className="tag-chip tag-chip-payment">
-                                            {sale.pembayaran.length > 12 ? sale.pembayaran.slice(0, 12) + '…' : sale.pembayaran}
+                                          <span className={`tag-chip ${getPaymentBadgeClass(sale.pembayaran)}`}>
+                                            {getPaymentIcon(sale.pembayaran)}{sale.pembayaran.length > 12 ? sale.pembayaran.slice(0, 12) + '…' : sale.pembayaran}
                                           </span>
                                         )}
                                       </div>
@@ -2254,7 +3294,7 @@ export default function Home() {
 
                           {/* Desktop Table View — Premium */}
                           <div className="hidden md:block overflow-x-auto rounded-xl border shadow-sm">
-                            <Table className="table-stripe">
+                            <Table className="table-stripe table-row-hover">
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent bg-gradient-to-r from-muted/80 to-muted/40">
                                   {/* Select column (for unclaimed rows) */}
@@ -2279,15 +3319,15 @@ export default function Home() {
                                       })()}
                                     </button>
                                   </TableHead>
-                                  <TableHead className="w-[100px] min-w-[100px] cursor-pointer select-none text-[11px]" onClick={() => { if (claimSortField === 'tanggal') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('tanggal'); setClaimSortDir('desc') } }}>
+                                  <TableHead className={`w-[100px] min-w-[100px] cursor-pointer select-none text-[11px] ${claimSortField === 'tanggal' ? 'sort-active-header' : ''}`} onClick={() => { if (claimSortField === 'tanggal') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('tanggal'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center gap-1">Tanggal{claimSortField === 'tanggal' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
                                   <TableHead className="min-w-[80px] text-[11px]">Dept</TableHead>
                                   <TableHead className="min-w-[120px] text-[11px]">Kode Extend</TableHead>
-                                  <TableHead className="text-right min-w-[60px] cursor-pointer select-none text-[11px]" onClick={() => { if (claimSortField === 'qty') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('qty'); setClaimSortDir('desc') } }}>
+                                  <TableHead className={`text-right min-w-[60px] cursor-pointer select-none text-[11px] ${claimSortField === 'qty' ? 'sort-active-header' : ''}`} onClick={() => { if (claimSortField === 'qty') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('qty'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center justify-end gap-1">Qty{claimSortField === 'qty' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
-                                  <TableHead className="text-right min-w-[110px] cursor-pointer select-none text-[11px]" onClick={() => { if (claimSortField === 'settle') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('settle'); setClaimSortDir('desc') } }}>
+                                  <TableHead className={`text-right min-w-[110px] cursor-pointer select-none text-[11px] ${claimSortField === 'settle' ? 'sort-active-header' : ''}`} onClick={() => { if (claimSortField === 'settle') setClaimSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setClaimSortField('settle'); setClaimSortDir('desc') } }}>
                                     <span className="inline-flex items-center justify-end gap-1">Settle{claimSortField === 'settle' && (claimSortDir === 'asc' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}</span>
                                   </TableHead>
                                   <TableHead className="min-w-[80px] text-[11px]">Pembayaran</TableHead>
@@ -2300,7 +3340,7 @@ export default function Home() {
                                 {sortedClaimSales.map((sale) => (
                                   <TableRow
                                     key={sale.id}
-                                    className={`sale-row ${selectedSaleIds.has(sale.id) ? 'row-selected' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}
+                                    className={`sale-row sale-row-accent ${selectedSaleIds.has(sale.id) ? 'row-selected' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''} ${sale.crew ? 'row-claimed-accent' : ''}`}
                                   >
                                     {/* Checkbox — only for unclaimed */}
                                     <TableCell>
@@ -2340,13 +3380,15 @@ export default function Home() {
                                         {!sale.dept && <span className="text-muted-foreground">-</span>}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="text-xs font-mono whitespace-nowrap font-semibold text-foreground">{sale.kodeExtend}</TableCell>
+                                    <TableCell className="text-xs font-mono whitespace-nowrap font-semibold text-foreground">
+                                      <button onClick={() => setSaleDetailDialog(sale)} className="hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline underline-offset-2 transition-colors">{sale.kodeExtend}</button>
+                                    </TableCell>
                                     <TableCell className="text-xs text-right tabular-nums">{sale.qty}</TableCell>
                                     <TableCell className="text-xs text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">{fmtRp(sale.settle)}</TableCell>
                                     {/* Pembayaran column */}
                                     <TableCell>
                                       {sale.pembayaran ? (
-                                        <span className="tag-chip tag-chip-payment">{sale.pembayaran}</span>
+                                        <span className={`tag-chip ${getPaymentBadgeClass(sale.pembayaran)}`}>{getPaymentIcon(sale.pembayaran)}{sale.pembayaran}</span>
                                       ) : <span className="text-xs text-muted-foreground">-</span>}
                                     </TableCell>
                                     {/* Program column */}
@@ -2446,35 +3488,61 @@ export default function Home() {
 
                 {/* ── Mobile Selected Items Bar removed — merged into Floating Claim Bar below ── */}
               </motion.div>
+                </motion.div>
+                )}
+              </AnimatePresence>
             </TabsContent>
 
             {/* ─── Management Tab ───────────────────────── */}
-            <TabsContent value="management" className="mt-4 sm:mt-6 pb-8">
+            <TabsContent value="management" className="mt-4 sm:mt-6 pb-8" forceMount style={{ display: activeTab === 'management' ? 'block' : 'none' }}>
+              <AnimatePresence mode="wait">
+                {activeTab === 'management' && (
+                  <motion.div key="management" {...tabTransition}>
               {!isAdmin ? (
                 <motion.div {...fadeIn} className="max-w-md mx-auto">
-                  <Card className="border-0 shadow-xl overflow-hidden">
-                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 text-center">
-                      <div className="w-16 h-16 mx-auto rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mb-3">
-                        <Shield className="w-8 h-8 text-white" />
+                  <Card className="border-0 shadow-2xl overflow-hidden login-card-pattern card-scale-hover">
+                    <div className="bg-gradient-to-br from-emerald-500 via-teal-500 to-emerald-700 animate-gradient-bg p-6 text-center relative">
+                      {/* Dot pattern overlay */}
+                      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
+                      {/* Floating Particles */}
+                      <div className="login-particles">
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <div key={i} className="login-particle" style={{ '--left': `${10 + (i * 7) % 85}%`, '--delay': `${(i * 0.4) % 3}s`, '--duration': `${3 + (i % 3)}s`, '--drift': `${(i % 2 === 0 ? 1 : -1) * (10 + i * 3)}px` } as React.CSSProperties} />
+                        ))}
                       </div>
-                      <h2 className="text-xl font-bold text-white">Admin Login</h2>
-                      <p className="text-emerald-100 text-sm mt-1">Masuk untuk mengelola crew dan group</p>
+                      <div className="relative z-10">
+                        {/* Company Logo Placeholder */}
+                        <div className="w-18 h-18 mx-auto rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mb-3 border border-white/20 shadow-lg">
+                          <div className="w-14 h-14 rounded-xl bg-white/25 backdrop-blur-sm flex items-center justify-center">
+                            <Layers className="w-8 h-8 text-white" />
+                          </div>
+                        </div>
+                        <h2 className="text-xl font-bold login-gradient-title">CMS Crew Management</h2>
+                        <p className="text-emerald-100 text-sm mt-1">Masuk untuk mengelola crew dan group</p>
+                      </div>
                     </div>
                     <CardContent className="p-6 space-y-4">
                       <div className="space-y-2">
                         <Label htmlFor="username">Username</Label>
                         <Input id="username" placeholder="admin" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })}
-                          onKeyDown={e => e.key === 'Enter' && handleLogin()} />
+                          onKeyDown={e => e.key === 'Enter' && handleLogin()} className="h-11" />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="password">Password</Label>
                         <Input id="password" type="password" placeholder="••••••" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
-                          onKeyDown={e => e.key === 'Enter' && handleLogin()} />
+                          onKeyDown={e => e.key === 'Enter' && handleLogin()} className="h-11" />
                       </div>
-                      <Button onClick={handleLogin} className="w-full bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25">
+                      <Button onClick={handleLogin} className="w-full h-11 bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 text-sm font-semibold login-btn-pulse">
                         <Shield className="w-4 h-4 mr-2" />Masuk
                       </Button>
-                      <p className="text-[10px] text-center text-muted-foreground">Hubungi admin untuk akses</p>
+                      <div className="text-center space-y-1.5">
+                        <p className="text-[10px] text-center text-muted-foreground">Hubungi admin untuk akses</p>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <div className="w-1 h-1 rounded-full bg-emerald-500/40" />
+                          <span className="text-[10px] text-muted-foreground/60 font-mono">CMS v1.0 — Ahtjong Labs</span>
+                          <div className="w-1 h-1 rounded-full bg-emerald-500/40" />
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -2544,7 +3612,7 @@ export default function Home() {
                         </div>
 
                         {/* Crew Table */}
-                        <Card className="border-0 shadow-lg overflow-hidden">
+                        <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
                           {/* Mobile Card View */}
                           <div className="md:hidden p-3 space-y-2">
                             {filteredMgmtCrews.map(crew => (
@@ -2581,7 +3649,7 @@ export default function Home() {
                           </div>
                           {/* Desktop Table View */}
                           <div className="hidden md:block overflow-x-auto">
-                            <Table className="table-stripe table-sticky-head">
+                            <Table className="table-stripe table-sticky-head table-row-hover">
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent">
                                   <TableHead>Crew</TableHead>
@@ -2631,7 +3699,7 @@ export default function Home() {
                         {/* Crew Performance Chart */}
                         {mgmtCrews.length > 0 && (
                           <motion.div {...fadeIn} transition={{ delay: 0.2 }}>
-                            <Card className="border-0 shadow-lg overflow-hidden">
+                            <Card className="border-0 shadow-lg overflow-hidden card-hover-glow card-scale-hover">
                               <CardHeader className="pb-2">
                                 <div className="flex items-center gap-2">
                                   <BarChart3 className="w-5 h-5 text-emerald-500" />
@@ -2642,14 +3710,17 @@ export default function Home() {
                                 <div className="h-[240px] w-full">
                                   <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={mgmtCrews.sort((a, b) => b.totalSales - a.totalSales).map(c => ({ name: c.name.split(' ')[0], sales: c.totalSales, group: c.group?.name }))} layout="vertical" margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
-                                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.9 0 0)" />
+                                      <defs>
+                                        <linearGradient id="mgmtBarGrad" x1="0" y1="0" x2="1" y2="0">
+                                          <stop offset="0%" stopColor="#059669" stopOpacity={0.9} />
+                                          <stop offset="100%" stopColor="#34d399" stopOpacity={0.7} />
+                                        </linearGradient>
+                                      </defs>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.9 0 0)" className="opacity-20" />
                                       <XAxis type="number" tickFormatter={v => v >= 1000000 ? `${(v / 1000000).toFixed(1)}jt` : v >= 1000 ? `${(v / 1000).toFixed(0)}rb` : String(v)} fontSize={11} />
                                       <YAxis type="category" dataKey="name" width={80} fontSize={11} tick={{ fill: 'oklch(0.4 0 0)' }} />
-                                      <Tooltip formatter={(v: number) => fmtRp(v)} contentStyle={{ borderRadius: '8px', border: '1px solid oklch(0.9 0 0)', fontSize: '12px' }} />
-                                      <Bar dataKey="sales" radius={[0, 6, 6, 0]}>
-                                        {mgmtCrews.sort((a, b) => b.totalSales - a.totalSales).map((_, i) => (
-                                          <Cell key={i} fill={['#059669', '#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5'][i % 6]} />
-                                        ))}
+                                      <Tooltip content={<ChartTooltip />} />
+                                      <Bar dataKey="sales" radius={[0, 6, 6, 0]} fill="url(#mgmtBarGrad)">
                                       </Bar>
                                     </BarChart>
                                   </ResponsiveContainer>
@@ -2740,6 +3811,9 @@ export default function Home() {
                   </Tabs>
                 </motion.div>
               )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </TabsContent>
           </Tabs>
         </div>
@@ -3156,7 +4230,7 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <footer className="mt-auto border-t border-border/50 bg-white/60 dark:bg-gray-950/60 backdrop-blur-xl pb-20 md:pb-0">
+      <footer className="mt-auto bg-white/60 dark:bg-gray-950/60 backdrop-blur-xl pb-20 md:pb-0 footer-gradient-border">
         {/* Top accent line */}
         <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
@@ -3234,14 +4308,38 @@ export default function Home() {
           </div>
 
           {/* Bottom bar */}
-          <div className="py-3 border-t border-border/30 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div className="py-3 border-t border-border/30 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-[10px] text-muted-foreground text-center sm:text-left">
               © {currentYear} <span className="font-semibold text-foreground/70">Ahtjong Labs</span>. All rights reserved.
             </p>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground">Made with</span>
-              <Heart className="w-3 h-3 text-red-500 fill-red-500" />
-              <span className="text-[10px] text-muted-foreground">in Indonesia</span>
+            <div className="flex items-center gap-4">
+              {/* Keyboard shortcuts button */}
+              <button
+                onClick={() => setShowShortcutsDialog(true)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                title="Keyboard Shortcuts"
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Shortcuts</span>
+                <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border bg-muted/50 text-[10px] font-mono">?</kbd>
+              </button>
+              {/* Social Icons Placeholder */}
+              <div className="flex items-center gap-2">
+                <button className="social-icon p-1.5 rounded-lg hover:bg-muted/50 transition-colors" aria-label="GitHub">
+                  <Code2 className="w-3.5 h-3.5" />
+                </button>
+                <button className="social-icon p-1.5 rounded-lg hover:bg-muted/50 transition-colors" aria-label="Website">
+                  <Globe className="w-3.5 h-3.5" />
+                </button>
+                <button className="social-icon p-1.5 rounded-lg hover:bg-muted/50 transition-colors" aria-label="Email">
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">Made with</span>
+                <Heart className="w-3 h-3 text-red-500 fill-red-500" />
+                <span className="text-[10px] text-muted-foreground">in Indonesia</span>
+              </div>
             </div>
           </div>
         </div>
@@ -3262,6 +4360,124 @@ export default function Home() {
           </motion.button>
         )}
       </AnimatePresence>
+
+      {/* ─── Quick Actions FAB (Mobile Only) ──────────── */}
+      <div className="md:hidden fixed bottom-[72px] left-4 z-40">
+        <AnimatePresence>
+          {!showFabMenu && (
+            <motion.button
+              initial={{ scale: 0, rotate: -45 }}
+              animate={{ scale: 1, rotate: 0 }}
+              exit={{ scale: 0, rotate: 45 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 15, delay: 0.3 }}
+              onClick={() => setShowFabMenu(true)}
+              className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center transition-all animate-fab-bounce"
+              aria-label="Quick Actions"
+            >
+              <Plus className="w-5 h-5" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* FAB Menu Overlay */}
+      <AnimatePresence>
+        {showFabMenu && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFabMenu(false)}
+              className="md:hidden fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className="md:hidden fixed bottom-[72px] left-4 z-50 space-y-2"
+            >
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => { setActiveTab('claims'); setShowFabMenu(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-border/50 text-sm font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md">
+                  <Upload className="w-4 h-4 text-white" />
+                </div>
+                <span>Claim Penjualan</span>
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setShowFabMenu(false) }}
+                className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-border/50 text-sm font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md">
+                  <ChevronUp className="w-4 h-4 text-white" />
+                </div>
+                <span>Scroll to Top</span>
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowFabMenu(false)}
+                className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-border/50 text-sm font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-400 to-gray-500 flex items-center justify-center shadow-md">
+                  <X className="w-4 h-4 text-white" />
+                </div>
+                <span>Tutup</span>
+              </motion.button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ KEYBOARD SHORTCUTS DIALOG ═══ */}
+      <Dialog open={showShortcutsDialog} onOpenChange={setShowShortcutsDialog}>
+        <DialogContent className="sm:max-w-md dialog-enhanced">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                <Keyboard className="w-4 h-4 text-white" />
+              </div>
+              Keyboard Shortcuts
+            </DialogTitle>
+            <DialogDescription>Perintah cepat untuk navigasi dan aksi</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 py-2">
+            {[
+              { keys: ['Ctrl', 'K'], desc: 'Fokus pencarian', icon: <Search className="w-4 h-4" /> },
+              { keys: ['/'], desc: 'Fokus pencarian', icon: <Search className="w-4 h-4" /> },
+              { keys: ['Ctrl', 'U'], desc: 'Upload file Excel', icon: <Upload className="w-4 h-4" /> },
+              { keys: ['1'], desc: 'Tab Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+              { keys: ['2'], desc: 'Tab Claim Penjualan', icon: <Upload className="w-4 h-4" /> },
+              { keys: ['3'], desc: 'Tab Management', icon: <Settings className="w-4 h-4" /> },
+              { keys: ['Ctrl', 'E'], desc: 'Export ke Excel', icon: <FileSpreadsheet className="w-4 h-4" /> },
+              { keys: ['Esc'], desc: 'Tutup dialog/modal', icon: <X className="w-4 h-4" /> },
+            ].map((shortcut, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="text-muted-foreground">{shortcut.icon}</div>
+                  <span className="text-sm text-foreground">{shortcut.desc}</span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {shortcut.keys.map((key, ki) => (
+                    <React.Fragment key={ki}>
+                      {ki > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
+                      <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-md border border-border bg-muted/80 text-xs font-mono font-semibold text-foreground shadow-sm">
+                        {key}
+                      </kbd>
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowShortcutsDialog(false)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══ FLOATING CLAIM BAR ═══ */}
       <AnimatePresence>
@@ -3311,6 +4527,23 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Progress bar during bulk claim */}
+              {bulkClaimProgress > 0 && (
+                <div className="px-3 pb-2">
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500"
+                      initial={{ width: '0%' }}
+                      animate={{ width: `${bulkClaimProgress}%` }}
+                      transition={{ duration: 0.3 }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                    {bulkClaimProgress < 100 ? `Meng-claim ${selectedSaleIds.size} data...` : 'Selesai!'}
+                  </p>
+                </div>
+              )}
+
               {/* Crew search or selected crew + claim button */}
               <div className="px-3 pb-3">
                 {selectedClaimCrew && selectedClaimCrewId ? (
@@ -3328,7 +4561,7 @@ export default function Home() {
                       </button>
                     </div>
                     <Button
-                      onClick={() => handleClaimSales(0)}
+                      onClick={() => setClaimConfirmDialog(true)}
                       disabled={claiming}
                       size="sm"
                       className="shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 animate-pulse-glow h-9 px-4"
@@ -3354,7 +4587,7 @@ export default function Home() {
                         />
                       </div>
                       <Button
-                        onClick={() => handleClaimSales(0)}
+                        onClick={() => setClaimConfirmDialog(true)}
                         disabled={true}
                         size="sm"
                         className="shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-700 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed h-9 px-4"
@@ -3398,8 +4631,256 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {/* ═══ SALES DETAIL MODAL ═══ */}
+      <Dialog open={!!saleDetailDialog} onOpenChange={open => { if (!open) setSaleDetailDialog(null) }}>
+        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto dialog-enhanced">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                <Info className="w-4 h-4 text-white" />
+              </div>
+              Detail Penjualan
+            </DialogTitle>
+            <DialogDescription>Informasi lengkap data penjualan</DialogDescription>
+          </DialogHeader>
+          {saleDetailDialog && (
+            <div className="space-y-4">
+              {/* Hero Section */}
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 border border-emerald-200/50 dark:border-emerald-800/30">
+                <div className="flex-1 min-w-0">
+                  <p className="text-lg font-extrabold tracking-tight text-foreground truncate">{saleDetailDialog.kodeExtend}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    {saleDetailDialog.dept && (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${getDeptColor(saleDetailDialog.dept)}`}>
+                        {saleDetailDialog.dept}
+                      </span>
+                    )}
+                    {saleDetailDialog.brand && (
+                      <span className="tag-chip tag-chip-brand">{saleDetailDialog.brand}</span>
+                    )}
+                    {saleDetailDialog.modul && (
+                      <span className="tag-chip">{saleDetailDialog.modul}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">{fmtRp(saleDetailDialog.settle)}</p>
+                  <p className="text-xs text-muted-foreground">{saleDetailDialog.qty} qty</p>
+                </div>
+              </div>
+
+              {/* Settlement Calculation Breakdown */}
+              <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-border/50">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2.5">Kalkulasi Settle</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">HJP × Qty</span>
+                    <span className="font-mono font-semibold">{fmtRp(saleDetailDialog.hjp)} × {saleDetailDialog.qty} = {fmtRp(saleDetailDialog.hjp * saleDetailDialog.qty)}</span>
+                  </div>
+                  {saleDetailDialog.diskon > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Diskon ({saleDetailDialog.diskon}%)</span>
+                      <span className="font-mono text-red-500 dark:text-red-400">- {fmtRp(saleDetailDialog.diskonRp)}</span>
+                    </div>
+                  )}
+                  {saleDetailDialog.potongan > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Potongan</span>
+                      <span className="font-mono text-red-500 dark:text-red-400">- {fmtRp(saleDetailDialog.potongan)}</span>
+                    </div>
+                  )}
+                  <div className="h-px bg-border/50 my-1" />
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-bold text-foreground">Settle</span>
+                    <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400">{fmtRp(saleDetailDialog.settle)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detail Grid */}
+              <div className="detail-grid">
+                {[
+                  { label: 'Tanggal', value: saleDetailDialog.tanggal || '-', icon: <Calendar className="w-3 h-3" /> },
+                  { label: 'ID Penjualan', value: saleDetailDialog.idPenjualan || '-', icon: <Package className="w-3 h-3" /> },
+                  { label: 'Brand', value: saleDetailDialog.brand || '-', icon: <Star className="w-3 h-3" /> },
+                  { label: 'Dept', value: saleDetailDialog.dept || '-', icon: <Layers className="w-3 h-3" /> },
+                  { label: 'Modul', value: saleDetailDialog.modul || '-', icon: <Layers className="w-3 h-3" /> },
+                  { label: 'Ukuran', value: saleDetailDialog.ukuran || '-', icon: <Layers className="w-3 h-3" /> },
+                  { label: 'Qty', value: String(saleDetailDialog.qty), icon: <Package className="w-3 h-3" /> },
+                  { label: 'HJP', value: saleDetailDialog.hjp ? fmtRp(saleDetailDialog.hjp) : '-', icon: <DollarSign className="w-3 h-3" /> },
+                  { label: 'Netto', value: saleDetailDialog.netto ? fmtRp(saleDetailDialog.netto) : '-', icon: <DollarSign className="w-3 h-3" /> },
+                  { label: 'Diskon (%)', value: saleDetailDialog.diskon ? String(saleDetailDialog.diskon) : '-', icon: <Percent className="w-3 h-3" /> },
+                  { label: 'Diskon (Rp)', value: saleDetailDialog.diskonRp ? fmtRp(saleDetailDialog.diskonRp) : '-', icon: <DollarSign className="w-3 h-3" /> },
+                  { label: 'Potongan', value: saleDetailDialog.potongan ? fmtRp(saleDetailDialog.potongan) : '-', icon: <DollarSign className="w-3 h-3" /> },
+                  { label: 'Potongan V', value: saleDetailDialog.potonganV ? String(saleDetailDialog.potonganV) : '-', icon: <Percent className="w-3 h-3" /> },
+                  { label: 'Pembayaran', value: saleDetailDialog.pembayaran || '-', icon: getPaymentIcon(saleDetailDialog.pembayaran) || <Wallet className="w-3 h-3" /> },
+                  { label: 'Program', value: saleDetailDialog.program || '-', icon: <Star className="w-3 h-3" /> },
+                  { label: 'Channel Stock', value: saleDetailDialog.channelStock || '-', icon: <Layers className="w-3 h-3" /> },
+                  { label: 'Status Ret.', value: saleDetailDialog.statusRetention || '-', icon: <AlertCircle className="w-3 h-3" /> },
+                  { label: 'Ret. Code', value: saleDetailDialog.retentionCode || '-', icon: <Code2 className="w-3 h-3" /> },
+                ].map((item, i) => (
+                  <div key={i} className="detail-cell">
+                    <div className="flex items-center gap-1.5 text-muted-foreground mb-0.5">
+                      {item.icon}
+                      <span className="text-[10px] font-medium uppercase tracking-wider">{item.label}</span>
+                    </div>
+                    <p className="text-xs font-semibold text-foreground truncate">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Crew Info / Claim History */}
+              {saleDetailDialog.crew ? (
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 dark:border-emerald-800/30">
+                  <Avatar className="w-10 h-10 ring-2 ring-emerald-200 dark:ring-emerald-800">
+                    <AvatarImage src={saleDetailDialog.crew.photo || ''} />
+                    <AvatarFallback className="bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold text-sm">
+                      {saleDetailDialog.crew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-foreground">{saleDetailDialog.crew.name}</p>
+                    <p className="text-[11px] text-muted-foreground font-mono">{saleDetailDialog.crew.employeeId}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 dark:bg-emerald-900/50">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                      <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Claimed</span>
+                    </div>
+                    {saleDetailDialog.claimedAt && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {saleDetailDialog.claimedAt && new Date(saleDetailDialog.claimedAt).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                    <Search className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Belum di-claim</p>
+                    <p className="text-[11px] text-muted-foreground">Data belum ditugaskan ke crew</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamp */}
+              <div className="text-center pt-2 border-t border-border/30">
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  Created: {new Date(saleDetailDialog.createdAt).toLocaleString('id-ID')}
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaleDetailDialog(null)}>Tutup</Button>
+            {saleDetailDialog && isAdmin && (
+              <div className="flex gap-2">
+                {saleDetailDialog.crew && (
+                  <Button size="sm" variant="outline" className="text-orange-500 border-orange-200 hover:bg-orange-50 dark:border-orange-800 dark:hover:bg-orange-950/30" onClick={() => { handleUnclaimSale(saleDetailDialog.id); setSaleDetailDialog(null) }}>
+                    <X className="w-3 h-3 mr-1" />Unclaim
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:border-emerald-800 dark:hover:bg-emerald-950/30" onClick={() => { openEditSale(saleDetailDialog); setSaleDetailDialog(null) }}>
+                  <Edit2 className="w-3 h-3 mr-1" />Edit
+                </Button>
+                <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30" onClick={() => { setDeleteConfirm({ type: 'sale', id: saleDetailDialog.id, name: `${saleDetailDialog.kodeExtend}${saleDetailDialog.crew ? ` — ${saleDetailDialog.crew.name}` : ' (unclaimed)'}` }); setSaleDetailDialog(null) }}>
+                  <Trash2 className="w-3 h-3 mr-1" />Hapus
+                </Button>
+              </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ CLAIM CONFIRMATION DIALOG ═══ */}
+      <Dialog open={claimConfirmDialog} onOpenChange={setClaimConfirmDialog}>
+        <DialogContent className="sm:max-w-md dialog-enhanced">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                <UserCheck className="w-4 h-4 text-white" />
+              </div>
+              Konfirmasi Claim
+            </DialogTitle>
+            <DialogDescription>Verifikasi data sebelum menugaskan ke crew</DialogDescription>
+          </DialogHeader>
+          {selectedClaimCrew && (
+            <div className="space-y-4">
+              {/* Summary Card */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 border border-emerald-200/50 dark:border-emerald-800/30 space-y-3">
+                {/* Items count and total */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">Total Item</p>
+                    <p className="text-2xl font-bold text-foreground tabular-nums">{selectedSaleIds.size}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground font-medium">Total Settle</p>
+                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{fmtRp(selectedItemsTotal)}</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Selected items preview */}
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">Item yang akan di-claim</p>
+                  <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
+                    {selectedItemsPreview.map(s => (
+                      <div key={s.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-border/50">
+                        {s.dept && <div className={`w-2 h-2 rounded-full shrink-0 ${getDeptColor(s.dept)}`} />}
+                        <span className="text-[11px] font-mono font-medium text-foreground flex-1 truncate">{s.kodeExtend}</span>
+                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">{fmtRp(s.settle)}</span>
+                      </div>
+                    ))}
+                    {selectedSaleIds.size > 3 && (
+                      <p className="text-[10px] text-center text-muted-foreground py-1">+{selectedSaleIds.size - 3} item lainnya</p>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Crew info */}
+                <div className="flex items-center gap-3">
+                  <Avatar className="w-10 h-10 ring-2 ring-emerald-200 dark:ring-emerald-800">
+                    <AvatarImage src={selectedClaimCrew.photo || ''} />
+                    <AvatarFallback className="bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold text-xs">
+                      {selectedClaimCrew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground font-medium">Ditugaskan ke</p>
+                    <p className="text-sm font-bold text-foreground truncate">{selectedClaimCrew.name}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono">{selectedClaimCrew.employeeId}</p>
+                  </div>
+                  <UserCheck className="w-5 h-5 text-emerald-500 shrink-0" />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setClaimConfirmDialog(false)} disabled={claiming}>Batal</Button>
+            <Button
+              onClick={() => { setClaimConfirmDialog(false); handleClaimSales(0) }}
+              disabled={claiming}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25"
+            >
+              {claiming ? (
+                <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />Memproses...</>
+              ) : (
+                <><UserCheck className="w-3.5 h-3.5 mr-1.5" />Konfirmasi Claim</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ═══ MOBILE BOTTOM NAVIGATION ═══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)] animate-mobile-nav-slide-up">
         <div className="flex items-center justify-around px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
           {navItems.map(t => {
             const isActive = activeTab === t.val
@@ -3430,6 +4911,7 @@ export default function Home() {
                   <span className={`text-[10px] font-semibold leading-none transition-all duration-200 ${isActive ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
                     {t.val === 'claims' ? 'Claim' : t.val === 'management' ? 'Mgmt' : t.label}
                   </span>
+                  {isActive && <div className="mobile-nav-dot" />}
                 </div>
               </button>
             )

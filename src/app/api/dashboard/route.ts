@@ -80,6 +80,13 @@ export async function GET(request: NextRequest) {
     const weekMap = new Map(weekAgg.map(a => [a.crewId, a]))
     const allTimeMap = new Map(allTimeAgg.map(a => [a.crewId, a]))
 
+    // Build group crew count map for crew target calculations
+    const groupCrewCountMap = new Map<string, number>()
+    for (const crew of crews) {
+      const count = groupCrewCountMap.get(crew.groupId) || 0
+      groupCrewCountMap.set(crew.groupId, count + 1)
+    }
+
     // Struk counts per crew per period — using COUNT(DISTINCT idPenjualan)
     // idPenjualan = transaction/receipt ID from POS system
     // One struk can have multiple item rows sharing the same idPenjualan
@@ -140,6 +147,35 @@ export async function GET(request: NextRequest) {
       const monthStruk = monthStrukMap.get(crew.id) ?? 0
       const allTimeStruk = allTimeStrukMap.get(crew.id) ?? 0
 
+      // ─── Crew Target Calculations ─────────────────────
+      const groupCrewCount = groupCrewCountMap.get(crew.groupId) || 1
+      const groupMonthlyTarget = crew.group.monthlyTarget || 0
+      const crewMonthlyTarget = groupMonthlyTarget / groupCrewCount
+
+      // Current week percentage
+      let weekTargetPct = 0
+      switch (currentWeek) {
+        case 1: weekTargetPct = crew.group.week1Target; break
+        case 2: weekTargetPct = crew.group.week2Target; break
+        case 3: weekTargetPct = crew.group.week3Target; break
+        case 4: weekTargetPct = crew.group.week4Target; break
+      }
+      const crewWeeklyTarget = crewMonthlyTarget * (weekTargetPct / 100)
+
+      // Achievement percentages (uncapped, max 999)
+      const monthlyAchievement = crewMonthlyTarget > 0
+        ? Math.min((monthTotal / crewMonthlyTarget) * 100, 999)
+        : 0
+      const weeklyAchievement = crewWeeklyTarget > 0
+        ? Math.min((weekTotal / crewWeeklyTarget) * 100, 999)
+        : 0
+
+      // All 4 weekly targets (absolute values)
+      const weekPcts = [crew.group.week1Target, crew.group.week2Target, crew.group.week3Target, crew.group.week4Target]
+      const weekTargets = weekPcts.map(wPct => crewMonthlyTarget * (wPct / 100))
+      // Placeholder week achievements (would need per-week data)
+      const weekAchievements = weekTargets.map(() => 0)
+
       return {
         id: crew.id,
         name: crew.name,
@@ -161,6 +197,14 @@ export async function GET(request: NextRequest) {
         allTimeQty,
         allTimeStruk,
         transactionCount: aAgg?._count ?? 0,
+        // Crew target system fields
+        crewMonthlyTarget,
+        crewWeeklyTarget,
+        monthlyAchievement,
+        weeklyAchievement,
+        weekTargets,
+        weekAchievements,
+        groupCrewCount,
       }
     })
 
@@ -210,8 +254,8 @@ export async function GET(request: NextRequest) {
     // Base where clause for groupId filter on sales
     const saleGroupFilter = groupId ? { crew: { groupId } } : {}
 
-    // PERF: Merge groups + recentSales + trend queries into single parallel batch (was 2 sequential rounds, now 1)
-    const [groups, recentSales, yesterdayAgg, lastWeekAgg, lastMonthAgg] = await Promise.all([
+    // PERF: Merge groups + recentSales + trend queries + dept breakdown into single parallel batch
+    const [groups, recentSales, yesterdayAgg, lastWeekAgg, lastMonthAgg, deptBreakdown] = await Promise.all([
       db.group.findMany({
         include: { crews: { select: { id: true } } },
       }),
@@ -236,6 +280,13 @@ export async function GET(request: NextRequest) {
       db.sale.aggregate({
         _sum: { settle: true },
         where: { ...saleGroupFilter, tanggal: { startsWith: lastMonthStr } },
+      }),
+      // Dept breakdown: group by dept with settle sum and count for current month
+      db.sale.groupBy({
+        by: ['dept'],
+        where: { ...saleGroupFilter, dept: { not: null }, tanggal: { startsWith: monthPrefix } },
+        _sum: { settle: true, qty: true },
+        _count: true,
       }),
     ])
 
@@ -306,6 +357,9 @@ export async function GET(request: NextRequest) {
       groupAchievements,
       topCrews,
       recentSales,
+      deptBreakdown: deptBreakdown
+        .map(d => ({ dept: d.dept, totalSettle: d._sum.settle ?? 0, totalQty: d._sum.qty ?? 0, count: d._count }))
+        .sort((a, b) => b.totalSettle - a.totalSettle),
       dateInfo: {
         today: todayStr,
         currentWeek,

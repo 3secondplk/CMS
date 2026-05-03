@@ -72,6 +72,7 @@ export default function RootLayout({
           attribute="class"
           defaultTheme="light"
           enableSystem
+          storageKey="cms-theme"
           disableTransitionOnChange
         >
           {children}

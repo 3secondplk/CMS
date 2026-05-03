@@ -1,6 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import * as XLSX from 'xlsx'
+
+// Helper: get today's date in WIB timezone (YYYY-MM-DD)
+function getWIBToday() {
+  const now = new Date()
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000
+  const wib = new Date(utc + 7 * 3600000)
+  return `${wib.getFullYear()}-${String(wib.getMonth() + 1).padStart(2, '0')}-${String(wib.getDate()).padStart(2, '0')}`
+}
+
+// Helper: log activity to ActivityLog (fire-and-forget)
+async function logActivity(action: string, description: string, crewName?: string, saleId?: string, metadata?: Record<string, unknown>) {
+  try {
+    await db.activityLog.create({
+      data: {
+        action,
+        description,
+        crewName: crewName || null,
+        saleId: saleId || null,
+        metadata: metadata ? JSON.stringify(metadata) : null,
+      },
+    })
+  } catch {
+    // Silently fail — activity logging should never break main operations
+  }
+}
+
+// Helper: format Rupiah short (e.g. "Rp 2.5jt")
+function fmtRpShort(n: number): string {
+  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1)}M`
+  if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1)}jt`
+  if (n >= 1_000) return `Rp ${(n / 1_000).toFixed(1)}rb`
+  return `Rp ${n}`
+}
 
 // ─────────────────────────────────────────────
 // POST /api/claims — Upload Excel & Import as unclaimed sales
@@ -280,6 +314,9 @@ export async function POST(request: NextRequest) {
       })),
     })
 
+    // Log upload activity
+    logActivity('UPLOAD', `Upload ${created.count} data penjualan (${fmtRpShort(newTotalSettle)})`, undefined, undefined, { totalRows: created.count, totalSettle: newTotalSettle, duplicateRows: duplicateCount, uniqueProducts: newProducts.size })
+
     return NextResponse.json({
       success: true,
       message: duplicateCount > 0
@@ -333,18 +370,24 @@ export async function GET(request: NextRequest) {
     // Collect AND conditions that need OR (search, date) — combine them properly
     const andConditions: Record<string, any>[] = []
 
-    // Search across kodeExtend, brand, dept, and crew name
+    // Search across kodeExtend, brand, dept, and crew name (case-insensitive for SQLite via LOWER())
     if (search) {
-      const searchConditions: Record<string, any>[] = [
-        { kodeExtend: { contains: search } },
-        { brand: { contains: search } },
-        { dept: { contains: search } },
-      ]
-      // Only add crew name search if there might be a crew relation
-      if (claimed !== 'false') {
-        searchConditions.push({ crew: { name: { contains: search } } })
+      // SQLite doesn't support Prisma's mode:'insensitive', so use raw query with LOWER()
+      const searchPattern = `%${search.toLowerCase()}%`
+      const matchingIds = await db.$queryRaw<{ id: string }[]>`
+        SELECT DISTINCT s.id FROM Sale s
+        LEFT JOIN Crew c ON s.crewId = c.id
+        WHERE LOWER(s.kodeExtend) LIKE ${searchPattern}
+           OR LOWER(s.brand) LIKE ${searchPattern}
+           OR LOWER(s.dept) LIKE ${searchPattern}
+           ${claimed !== 'false' ? Prisma.sql`OR LOWER(c.name) LIKE ${searchPattern}` : Prisma.empty}
+      `
+      if (matchingIds.length > 0) {
+        andConditions.push({ id: { in: matchingIds.map(m => m.id) } })
+      } else {
+        // No matches — return empty result immediately
+        return NextResponse.json({ sales: [], total: 0, page, totalPages: 1, summary: { totalQty: 0, totalSettle: 0, totalStruk: 0, basketSize: 0, pricePoint: 0 } })
       }
-      andConditions.push({ OR: searchConditions })
     }
 
     // Date range filter on tanggal
@@ -421,6 +464,52 @@ export async function GET(request: NextRequest) {
     // Price Point = average price per item
     const pricePoint = totalQty > 0 ? totalSettle / totalQty : 0
 
+    // ── Overview: aggregate counts across ALL data (not just current page) ──
+    // Build a base where clause without crewId filter for overview aggregation
+    const overviewBase: Record<string, any> = {}
+    if (andConditions.length > 0) {
+      overviewBase.AND = andConditions
+    }
+    if (program) {
+      overviewBase.program = program
+    }
+
+    const todayStr = getWIBToday()
+
+    const [unclaimedAgg, claimedAgg, todayActAgg] = await Promise.all([
+      // Unclaimed: crewId is null
+      db.sale.aggregate({
+        _count: { id: true },
+        _sum: { settle: true },
+        where: { ...overviewBase, crewId: null },
+      }),
+      // Claimed: crewId is not null
+      db.sale.aggregate({
+        _count: { id: true },
+        _sum: { settle: true },
+        where: { ...overviewBase, crewId: { not: null } },
+      }),
+      // Today's activity: claimedAt within today's date range (WIB)
+      // Use gte/lte range since claimedAt is a DateTime field (startsWith not supported)
+      db.sale.count({
+        where: {
+          ...overviewBase,
+          claimedAt: {
+            gte: new Date(`${todayStr}T00:00:00.000Z`),
+            lt: new Date(`${todayStr}T23:59:59.999Z`),
+          },
+        },
+      }),
+    ])
+
+    const overview = {
+      unclaimedCount: unclaimedAgg._count.id,
+      unclaimedSettle: unclaimedAgg._sum.settle ?? 0,
+      claimedCount: claimedAgg._count.id,
+      claimedSettle: claimedAgg._sum.settle ?? 0,
+      todayActivity: todayActAgg,
+    }
+
     return NextResponse.json({
       sales,
       total,
@@ -433,6 +522,7 @@ export async function GET(request: NextRequest) {
         basketSize,
         pricePoint,
       },
+      overview,
     })
   } catch (error) {
     console.error('Get claims error:', error)
@@ -578,6 +668,9 @@ export async function PUT(request: NextRequest) {
       crewId,
       crewName: crew.name,
     })
+
+    // Log claim activity (fire-and-forget after response)
+    logActivity('CLAIM', `Claim ${claimedCount} data ke ${crew.name} (${fmtRpShort(totalSettle)})`, crew.name, undefined, { claimedCount, totalSettle, crewId: crew.id })
   } catch (error) {
     console.error('Claim sales error:', error)
     return NextResponse.json(
@@ -651,6 +744,9 @@ export async function PATCH(request: NextRequest) {
     })
 
     return NextResponse.json({ success: true, message: 'Data berhasil diperbarui', sale: updated })
+
+    // Log edit activity
+    logActivity('EDIT', `Edit data ${sale.kodeExtend}`, sale.crew?.name || undefined, sale.id, { changedFields: Object.keys(data) })
   } catch (error) {
     console.error('Edit claim error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan saat mengubah data' }, { status: 500 })
@@ -675,6 +771,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.sale.delete({ where: { id } })
+
+    // Log delete activity
+    logActivity('DELETE', `Hapus data ${sale.kodeExtend} (${fmtRpShort(sale.settle)})`, sale.crew?.name || undefined, sale.id)
 
     return NextResponse.json({ success: true, message: 'Data penjualan berhasil dihapus' })
   } catch (error) {
