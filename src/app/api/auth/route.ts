@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!admin || admin.password !== hashedPassword) {
-      return NextResponse.json({ error: 'Username atau password salah', debug: { hasAdmin: !!admin, adminCount } }, { status: 401 })
+      return NextResponse.json({ error: 'Username atau password salah' }, { status: 401 })
     }
 
     const token = createJWT({ adminId: admin.id, username: admin.username, name: admin.name })

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
 export async function GET() {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     // ── WIB date calculation (before any queries) ──
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
@@ -98,6 +101,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const body = await request.json()
     const { name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target } = body
 
@@ -105,32 +111,69 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nama group harus diisi' }, { status: 400 })
     }
 
+    // SEC-06: Input length validation
+    if (typeof name !== 'string' || name.length > 200) {
+      return NextResponse.json({ error: 'Nama group maksimal 200 karakter' }, { status: 400 })
+    }
+
+    // Validate numeric targets are finite and non-negative
+    const validateTarget = (val: unknown, fieldName: string): number | NextResponse => {
+      if (val === undefined || val === null || val === '') return 0
+      const num = Number(val)
+      if (!Number.isFinite(num) || num < 0) {
+        return NextResponse.json({ error: `${fieldName} harus berupa angka non-negatif` }, { status: 400 })
+      }
+      return num
+    }
+
+    const mt = validateTarget(monthlyTarget, 'monthlyTarget')
+    if (mt instanceof NextResponse) return mt
+    const w1 = validateTarget(week1Target, 'week1Target')
+    if (w1 instanceof NextResponse) return w1
+    const w2 = validateTarget(week2Target, 'week2Target')
+    if (w2 instanceof NextResponse) return w2
+    const w3 = validateTarget(week3Target, 'week3Target')
+    if (w3 instanceof NextResponse) return w3
+    const w4 = validateTarget(week4Target, 'week4Target')
+    if (w4 instanceof NextResponse) return w4
+
     const group = await db.group.create({
       data: {
         name,
         logo: logo || null,
-        monthlyTarget: monthlyTarget || 0,
-        week1Target: week1Target || 0,
-        week2Target: week2Target || 0,
-        week3Target: week3Target || 0,
-        week4Target: week4Target || 0,
+        monthlyTarget: mt,
+        week1Target: w1,
+        week2Target: w2,
+        week3Target: w3,
+        week4Target: w4,
       },
     })
 
     return NextResponse.json(group, { status: 201 })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Create group error:', error)
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2002') {
+      return NextResponse.json({ error: 'Nama group sudah ada' }, { status: 409 })
+    }
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const body = await request.json()
     const { id, name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target } = body
 
     if (!id) {
       return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
+    }
+
+    // SEC-06: Input length validation
+    if (name !== undefined && (typeof name !== 'string' || name.length > 200)) {
+      return NextResponse.json({ error: 'Nama group maksimal 200 karakter' }, { status: 400 })
     }
 
     const group = await db.group.update({
@@ -147,14 +190,23 @@ export async function PUT(request: NextRequest) {
     })
 
     return NextResponse.json(group)
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Update group error:', error)
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
+      return NextResponse.json({ error: 'Group tidak ditemukan' }, { status: 404 })
+    }
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2002') {
+      return NextResponse.json({ error: 'Nama group sudah ada' }, { status: 409 })
+    }
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -165,8 +217,11 @@ export async function DELETE(request: NextRequest) {
     await db.group.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Delete group error:', error)
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
+      return NextResponse.json({ error: 'Group tidak ditemukan' }, { status: 404 })
+    }
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }

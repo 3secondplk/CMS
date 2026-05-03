@@ -31,12 +31,13 @@ export async function GET() {
       ok: true,
       message: 'Default admin created successfully',
       admin: { id: admin.id, username: admin.username, name: admin.name },
-      login: 'admin / admin123',
+      // SEC: Do NOT leak credentials in response
     })
-  } catch (error: any) {
+  } catch (error) {
+    console.error('Setup error:', error)
     return NextResponse.json({
       ok: false,
-      error: error.message || 'DB connection failed',
+      error: 'Database connection failed',
       hint: 'Check DATABASE_URL and prisma schema (must be postgresql for Neon)',
     }, { status: 500 })
   }

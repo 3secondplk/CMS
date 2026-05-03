@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const search = searchParams.get('search')
@@ -11,8 +14,8 @@ export async function GET(request: NextRequest) {
     if (groupId) where.groupId = groupId
     if (search) {
       where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { employeeId: { contains: search, mode: 'insensitive' } },
+        { name: { contains: search } },
+        { employeeId: { contains: search } },
       ]
     }
 
@@ -73,6 +76,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const body = await request.json()
     const { name, photo, employeeId, groupId } = body
 
@@ -105,6 +111,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const body = await request.json()
     const { id, name, photo, employeeId, groupId } = body
 
@@ -146,6 +155,8 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 

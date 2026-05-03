@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { requireAuth } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') || 'today' // today, week, month
     const groupId = searchParams.get('groupId')
@@ -43,6 +46,9 @@ export async function GET(request: NextRequest) {
     // Calculate week date range string for accurate weekly queries
     const weekStartStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekStart).padStart(2, '0')}`
     const weekEndStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekEnd).padStart(2, '0')}`
+    // BUGFIX: use next day after weekEnd for lt comparison (handles timestamps like "2026-05-03 09:00")
+    const weekEndNextDay = new Date(currentYear, currentMonth, weekEnd + 1)
+    const weekEndNextDayStr = `${weekEndNextDay.getFullYear()}-${String(weekEndNextDay.getMonth() + 1).padStart(2, '0')}-${String(weekEndNextDay.getDate()).padStart(2, '0')}`
 
     // Use groupBy aggregation — MUCH lighter than loading all rows
     const [monthAgg, todayAgg, weekAgg, allTimeAgg] = crewIds.length > 0
@@ -61,7 +67,7 @@ export async function GET(request: NextRequest) {
           }),
           db.sale.groupBy({
             by: ['crewId'],
-            where: { crewId: { in: crewIds }, tanggal: { gte: weekStartStr, lte: weekEndStr } },
+            where: { crewId: { in: crewIds }, tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
@@ -95,7 +101,7 @@ export async function GET(request: NextRequest) {
           db.$queryRaw<Array<{ crewId: string; count: number }>>`
             SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
             FROM "Sale"
-            WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL AND "tanggal" >= ${weekStartStr} AND "tanggal" <= ${weekEndStr}
+            WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL AND "tanggal" >= ${weekStartStr} AND "tanggal" < ${weekEndNextDayStr}
             GROUP BY "crewId"
           `,
           db.$queryRaw<Array<{ crewId: string; count: number }>>`
@@ -119,6 +125,20 @@ export async function GET(request: NextRequest) {
     const allTimeStrukMap = new Map(allTimeStrukRaw.map(r => [r.crewId, Number(r.count)]))
 
     // Calculate per-crew stats from aggregated data
+
+    // Build group info map from already-loaded crew.group data
+    const groupInfoMap = new Map<string, { monthlyTarget: number; crewCount: number; weeklyTargetPcts: number[] }>()
+    for (const crew of crews) {
+      if (!groupInfoMap.has(crew.group.id)) {
+        groupInfoMap.set(crew.group.id, {
+          monthlyTarget: crew.group.monthlyTarget,
+          crewCount: 0,
+          weeklyTargetPcts: [crew.group.week1Target, crew.group.week2Target, crew.group.week3Target, crew.group.week4Target],
+        })
+      }
+      groupInfoMap.get(crew.group.id)!.crewCount++
+    }
+
     const crewStats = crews.map(crew => {
       const mAgg = monthMap.get(crew.id)
       const tAgg = todayMap.get(crew.id)
@@ -139,6 +159,18 @@ export async function GET(request: NextRequest) {
       const weekStruk = weekStrukMap.get(crew.id) ?? 0
       const monthStruk = monthStrukMap.get(crew.id) ?? 0
       const allTimeStruk = allTimeStrukMap.get(crew.id) ?? 0
+
+      // ── Target per Crew calculation ──
+      const gInfo = groupInfoMap.get(crew.group.id)
+      const crewCount = gInfo?.crewCount ?? 1
+      const groupMonthlyTarget = gInfo?.monthlyTarget ?? 0
+      const weeklyPcts = gInfo?.weeklyTargetPcts ?? [0, 0, 0, 0]
+
+      const crewMonthlyTarget = crewCount > 0 ? Math.round(groupMonthlyTarget / crewCount) : 0
+      const crewWeeklyTargets = weeklyPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
+      const crewCurrentWeekTarget = crewWeeklyTargets[currentWeek - 1] ?? 0
+      const crewMonthlyAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((monthTotal / crewMonthlyTarget) * 100), 999) : 0
+      const crewWeeklyAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((weekTotal / crewCurrentWeekTarget) * 100), 999) : 0
 
       return {
         id: crew.id,
@@ -161,6 +193,15 @@ export async function GET(request: NextRequest) {
         allTimeQty,
         allTimeStruk,
         transactionCount: aAgg?._count ?? 0,
+        // Target fields
+        crewMonthlyTarget,
+        crewMonthlyAchievement,
+        crewWeeklyTargets,
+        crewCurrentWeekTarget,
+        crewWeeklyAchievement,
+        currentWeek,
+        groupMonthlyTarget,
+        groupWeeklyTargetPcts: weeklyPcts,
       }
     })
 
@@ -202,6 +243,10 @@ export async function GET(request: NextRequest) {
     lastWeekStart.setDate(lastWeekStart.getDate() - 6)
     const lastWeekStartStr = formatDateStr(lastWeekStart)
     const lastWeekEndStr = yesterdayStr
+    // BUGFIX: use next day after lastWeekEnd for lt comparison
+    const lastWeekEndNextDay = new Date(yesterdayDate)
+    lastWeekEndNextDay.setDate(lastWeekEndNextDay.getDate() + 1)
+    const lastWeekEndNextDayStr = formatDateStr(lastWeekEndNextDay)
 
     // Last month: first day of previous month used as prefix
     const lastMonthDate = new Date(wibNow.getFullYear(), wibNow.getMonth() - 1, 1)
@@ -231,7 +276,7 @@ export async function GET(request: NextRequest) {
       }),
       db.sale.aggregate({
         _sum: { settle: true },
-        where: { ...saleGroupFilter, tanggal: { gte: lastWeekStartStr, lte: lastWeekEndStr } },
+        where: { ...saleGroupFilter, tanggal: { gte: lastWeekStartStr, lt: lastWeekEndNextDayStr } },
       }),
       db.sale.aggregate({
         _sum: { settle: true },
@@ -280,6 +325,12 @@ export async function GET(request: NextRequest) {
         ? Math.min((weeklyTotal / weeklyTarget) * 100, 100) 
         : 0
 
+      // Per-crew target breakdown
+      const crewCount = group.crews.length
+      const crewMonthlyTarget = crewCount > 0 ? Math.round(group.monthlyTarget / crewCount) : 0
+      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target]
+      const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
+
       return {
         id: group.id,
         name: group.name,
@@ -292,7 +343,10 @@ export async function GET(request: NextRequest) {
         weeklyAchievement,
         weekTargetPct,
         currentWeek,
-        crewCount: group.crews.length,
+        crewCount,
+        crewMonthlyTarget,
+        weeklyTargetPcts,
+        crewWeeklyTargets,
       }
     })
 

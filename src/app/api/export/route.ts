@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const crewId = searchParams.get('crewId')
     const dateFrom = searchParams.get('dateFrom')
@@ -28,7 +31,11 @@ export async function GET(request: NextRequest) {
         tanggalFilter.gte = dateFrom
       }
       if (dateTo) {
-        tanggalFilter.lte = dateTo
+        // BUGFIX: use lt:nextDay to handle timestamps like "2026-05-03 09:00"
+        const [y, m, d] = dateTo.split('-').map(Number)
+        const nextDay = new Date(y, m - 1, d + 1)
+        const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`
+        tanggalFilter.lt = nextDayStr
       }
       where.tanggal = tanggalFilter
     }
@@ -48,7 +55,12 @@ export async function GET(request: NextRequest) {
         },
       },
       orderBy: { tanggal: 'asc' },
+      take: 50000, // SEC: Prevent OOM — max 50k rows exported
     })
+
+    if (sales.length === 0) {
+      return NextResponse.json({ error: 'Tidak ada data untuk diekspor' }, { status: 404 })
+    }
 
     // Build CSV content
     const header = 'No,Tanggal,Kode Extend,Brand,Qty,Settle,Crew,Group,Dept,Modul,Pembayaran'

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import * as XLSX from 'xlsx'
+import { requireAuth } from '@/lib/auth'
 
 // ─────────────────────────────────────────────
 // POST /api/claims — Upload Excel & Import as unclaimed sales
 // ─────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
@@ -34,7 +37,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parse Excel — row 1 is title "Laporan Penjualan", row 2 is headers
+    // Parse Excel — supports two formats:
+    // Format A: Row 1 = title "Laporan Penjualan", Row 2 = headers, Row 3+ = data
+    // Format B: Row 1 = headers, Row 2+ = data (no title row)
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     const workbook = XLSX.read(buffer, { type: 'buffer' })
@@ -46,12 +51,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File kosong atau tidak dapat dibaca' }, { status: 400 })
     }
 
-    // Validate required columns from header row (first data row = actual headers)
-    const headerRow = jsonData[0]
+    // Validate required columns from first row (headers or first data row)
     const requiredColumns = ['Tanggal', 'Kode Extend', 'Settle', 'Qty']
-    const missingColumns = requiredColumns.filter((col) => !(col in headerRow))
-    // Also check optional columns that we'll store if present
-    const optionalColumns = ['ID Penjualan', 'Status Retention', 'Retention Code', 'Pembayaran', 'Program', 'Channel Stock', 'Brand', 'Dept', 'Modul', 'Ukuran', 'HJP', 'Netto', 'Diskon', 'Diskon Rp', 'Potongan', 'Potongan V']
+    const missingColumns = requiredColumns.filter((col) => !(col in jsonData[0]))
     if (missingColumns.length > 0) {
       return NextResponse.json(
         { error: `Format file tidak valid. Pastikan file memiliki kolom: Tanggal, Kode Extend, Settle, Qty` },
@@ -59,8 +61,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Data rows start after header row
-    const dataRows = jsonData.slice(1)
+    // ── Smart title row detection (BUGFIX: was always slicing row 0) ──
+    // sheet_to_json uses Excel Row 1 as column headers automatically.
+    // If the original Excel has a title row "Laporan Penjualan" BEFORE the headers,
+    // that title row is already stripped by sheet_to_json and jsonData starts with data.
+    // If the original Excel has NO title row (headers = Row 1), same behavior.
+    // So jsonData is ALWAYS pure data rows — NEVER slice.
+    const dataRows = jsonData
 
     const uniqueProducts = new Set<string>()
     let totalQty = 0
@@ -116,84 +123,55 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Cross-DB deduplication (DEDUP v5) ──
-    // idPenjualan = transaction/receipt ID from POS system
-    // Multiple items in the same transaction share the same idPenjualan
-    // Same product can appear multiple times (customer buys 3x of same item)
-    // → Dedup at TRANSACTION level: if idPenjualan exists in DB, skip ALL rows for that transaction
-    // → NO in-file dedup: all rows from Excel are legitimate, even if they look identical
+    // ── Cross-DB deduplication (DEDUP v6 — Row-level) ──
+    // Unique key = (tanggal, idPenjualan, kodeExtend) per individual row
+    // This handles: same product bought multiple times, partial deletes, re-imports
+    // Algorithm: count each unique key in import vs DB → only import the excess
     let newSalesData: typeof salesData = []
     let duplicateCount = 0
 
-    // Step 1: Separate rows with and without idPenjualan
-    const withIdPenjualan = salesData.filter(s => s.idPenjualan)
-    const withoutIdPenjualan = salesData.filter(s => !s.idPenjualan)
-
-    // Step 2: For rows WITH idPenjualan → dedup at transaction level
-    // idPenjualan is the receipt/transaction ID — same for ALL items in one struk
-    // If this transaction is already in DB, skip ALL its rows
-    const existingIdPenjualans = new Set<string>()
-    if (withIdPenjualan.length > 0) {
-      const uniqueIds = [...new Set(withIdPenjualan.map(s => s.idPenjualan))]
-      const CHUNK_SIZE = 100
-      for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
-        const chunk = uniqueIds.slice(i, i + CHUNK_SIZE)
-        const results = await db.sale.findMany({
-          where: { idPenjualan: { in: chunk } },
-          select: { idPenjualan: true },
-        })
-        for (const r of results) {
-          if (r.idPenjualan) existingIdPenjualans.add(r.idPenjualan)
-        }
-      }
-      // Keep only rows whose idPenjualan does NOT exist in DB
-      const idPenjualanKeep = withIdPenjualan.filter(s => !existingIdPenjualans.has(s.idPenjualan))
-      duplicateCount += withIdPenjualan.length - idPenjualanKeep.length
-      newSalesData.push(...idPenjualanKeep)
+    // Step 1: Count occurrences of each unique key in the import file
+    const importCounts = new Map<string, number>()
+    for (const s of salesData) {
+      const key = `${s.tanggal}|||${s.idPenjualan || ''}|||${s.kodeExtend}`
+      importCounts.set(key, (importCounts.get(key) || 0) + 1)
     }
 
-    // Step 3: For rows WITHOUT idPenjualan → count-based dedup using (tanggal, kodeExtend)
-    // Count occurrences of each (tanggal, kodeExtend) in import
-    // Compare with DB count → only import the excess
-    if (withoutIdPenjualan.length > 0) {
-      const importCounts = new Map<string, number>()
-      for (const s of withoutIdPenjualan) {
-        const key = `${s.tanggal}|||${s.kodeExtend}`
-        importCounts.set(key, (importCounts.get(key) || 0) + 1)
-      }
+    // Step 2: Get DB counts for each unique key
+    const uniqueKeys = [...importCounts.keys()]
+    const dbCounts = new Map<string, number>()
 
-      // Get DB counts for each (tanggal, kodeExtend) combination
-      const uniqueKeys = [...importCounts.keys()]
-      const dbCounts = new Map<string, number>()
-      const CHUNK_SIZE = 50
-      for (let i = 0; i < uniqueKeys.length; i += CHUNK_SIZE) {
-        const chunk = uniqueKeys.slice(i, i + CHUNK_SIZE)
-        for (const key of chunk) {
-          const [tanggal, kodeExtend] = key.split('|||')
-          const count = await db.sale.count({
-            where: { tanggal, kodeExtend, idPenjualan: null },
-          })
-          dbCounts.set(key, count)
-        }
-      }
-
-      // Build rows to keep: for each (tanggal, kodeExtend), import (importCount - dbCount) rows
-      const keptWithoutId: typeof withoutIdPenjualan = []
-      const keyUsageCount = new Map<string, number>()
-      for (const s of withoutIdPenjualan) {
-        const key = `${s.tanggal}|||${s.kodeExtend}`
-        const importCount = importCounts.get(key) || 0
-        const dbCount = dbCounts.get(key) || 0
-        const used = keyUsageCount.get(key) || 0
-
-        if (used < Math.max(0, importCount - dbCount)) {
-          keptWithoutId.push(s)
-          keyUsageCount.set(key, used + 1)
+    // Query in chunks to avoid too many DB calls
+    const CHUNK_SIZE = 50
+    for (let i = 0; i < uniqueKeys.length; i += CHUNK_SIZE) {
+      const chunk = uniqueKeys.slice(i, i + CHUNK_SIZE)
+      await Promise.all(chunk.map(async (key) => {
+        const [tanggal, idPenjualan, kodeExtend] = key.split('|||')
+        const whereClause: Record<string, unknown> = { tanggal, kodeExtend }
+        if (idPenjualan) {
+          whereClause.idPenjualan = idPenjualan
         } else {
-          duplicateCount++
+          whereClause.idPenjualan = null
         }
+        const count = await db.sale.count({ where: whereClause })
+        dbCounts.set(key, count)
+      }))
+    }
+
+    // Step 3: Build rows to keep — for each unique key, import (importCount - dbCount) rows
+    const keyUsageCount = new Map<string, number>()
+    for (const s of salesData) {
+      const key = `${s.tanggal}|||${s.idPenjualan || ''}|||${s.kodeExtend}`
+      const importCount = importCounts.get(key) || 0
+      const dbCount = dbCounts.get(key) || 0
+      const used = keyUsageCount.get(key) || 0
+
+      if (used < Math.max(0, importCount - dbCount)) {
+        newSalesData.push(s)
+        keyUsageCount.set(key, used + 1)
+      } else {
+        duplicateCount++
       }
-      newSalesData.push(...keptWithoutId)
     }
 
     // Recalculate stats for only the new (non-duplicate) rows
@@ -275,6 +253,8 @@ export async function POST(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
@@ -298,25 +278,34 @@ export async function GET(request: NextRequest) {
       where.crewId = crewId
     }
 
-    // Search across kodeExtend, brand, dept, and crew name (PG-01: case-insensitive for PostgreSQL)
+    // Search across kodeExtend, brand, dept, and crew name (case-insensitive for SQLite)
     if (search) {
       const searchConditions: Record<string, any>[] = [
-        { kodeExtend: { contains: search, mode: 'insensitive' } },
-        { brand: { contains: search, mode: 'insensitive' } },
-        { dept: { contains: search, mode: 'insensitive' } },
+        { kodeExtend: { contains: search } },
+        { brand: { contains: search } },
+        { dept: { contains: search } },
       ]
       // Only add crew name search if there might be a crew relation
       if (claimed !== 'false') {
-        searchConditions.push({ crew: { name: { contains: search, mode: 'insensitive' } } })
+        searchConditions.push({ crew: { name: { contains: search } } })
       }
       where.OR = searchConditions
     }
 
     // Date range filter on tanggal
+    // BUGFIX: tanggal can contain timestamps like "2026-05-03 09:00"
+    // Using lte with bare date "2026-05-03" fails because "2026-05-03 09:00" > "2026-05-03"
+    // Fix: use lt with next day to include all timestamps on the target date
     if (dateFrom || dateTo) {
       const tanggalFilter: Record<string, unknown> = {}
       if (dateFrom) tanggalFilter.gte = dateFrom
-      if (dateTo) tanggalFilter.lte = dateTo
+      if (dateTo) {
+        // Calculate next day to include all timestamps on dateTo
+        const [y, m, d] = dateTo.split('-').map(Number)
+        const nextDay = new Date(y, m - 1, d + 1)
+        const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`
+        tanggalFilter.lt = nextDayStr
+      }
       where.tanggal = tanggalFilter
     }
 
@@ -389,6 +378,8 @@ export async function GET(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function PUT(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const body = await request.json()
     const { saleIds, crewId } = body as { saleIds?: string[]; crewId?: string }
 
@@ -535,6 +526,8 @@ export async function PUT(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function PATCH(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const body = await request.json()
     const { id, crewId, tanggal, kodeExtend, qty, settle, dept, brand, modul, pembayaran, program } = body as Record<string, unknown>
 
@@ -572,8 +565,8 @@ export async function PATCH(request: NextRequest) {
     // Editable fields — only update if provided and different
     if (tanggal !== undefined && typeof tanggal === 'string') data.tanggal = tanggal
     if (kodeExtend !== undefined && typeof kodeExtend === 'string') data.kodeExtend = kodeExtend
-    if (qty !== undefined && typeof qty === 'number') data.qty = qty
-    if (settle !== undefined && typeof settle === 'number') data.settle = settle
+    if (qty !== undefined && typeof qty === 'number') data.qty = Number.isFinite(qty) ? Math.max(0, qty) : 0
+    if (settle !== undefined && typeof settle === 'number') data.settle = Number.isFinite(settle) ? Math.max(0, settle) : 0
     if (dept !== undefined) data.dept = dept === '' ? null : dept
     if (brand !== undefined) data.brand = brand === '' ? null : brand
     if (modul !== undefined) data.modul = modul === '' ? null : modul
@@ -604,6 +597,8 @@ export async function PATCH(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function DELETE(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 

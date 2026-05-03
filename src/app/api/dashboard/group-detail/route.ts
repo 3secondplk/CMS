@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { requireAuth } from '@/lib/auth'
 
 // GET /api/dashboard/group-detail?groupId=xxx&period=daily
 // Returns crew list within a group with total qty, penjualan, struk count, basket size, price point
 // period: daily (default), weekly, monthly
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const period = searchParams.get('period') || 'daily' // daily, weekly, monthly
@@ -45,6 +48,9 @@ export async function GET(request: NextRequest) {
     const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
     const weekStartStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekStart).padStart(2, '0')}`
     const weekEndStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekEnd).padStart(2, '0')}`
+    // BUGFIX: use next day after weekEnd for lt comparison
+    const weekEndNextDay = new Date(currentYear, currentMonth, weekEnd + 1)
+    const weekEndNextDayStr = `${weekEndNextDay.getFullYear()}-${String(weekEndNextDay.getMonth() + 1).padStart(2, '0')}-${String(weekEndNextDay.getDate()).padStart(2, '0')}`
 
     switch (period) {
       case 'daily':
@@ -53,8 +59,8 @@ export async function GET(request: NextRequest) {
         periodLabel = `${dayOfMonth} ${shortMonths[currentMonth]} ${currentYear}`
         break
       case 'weekly':
-        prismaDateFilter = { gte: weekStartStr, lte: weekEndStr }
-        sqlDateCondition = Prisma.sql`AND "tanggal" >= ${weekStartStr} AND "tanggal" <= ${weekEndStr}`
+        prismaDateFilter = { gte: weekStartStr, lt: weekEndNextDayStr }
+        sqlDateCondition = Prisma.sql`AND "tanggal" >= ${weekStartStr} AND "tanggal" < ${weekEndNextDayStr}`
         periodLabel = `Minggu ${currentWeek} (${weekStart}–${weekEnd})`
         break
       case 'monthly':
@@ -81,12 +87,20 @@ export async function GET(request: NextRequest) {
     const crewIds = group.crews.map(c => c.id)
 
     if (crewIds.length === 0) {
+      const crewCount = 0
+      const crewMonthlyTarget = 0
+      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target]
+      const crewWeeklyTargets = [0, 0, 0, 0]
       return NextResponse.json({
         group: { id: group.id, name: group.name, logo: group.logo, monthlyTarget: group.monthlyTarget },
         period: periodLabel,
         periodKey: period,
         crews: [],
         groupTotal: { qty: 0, settle: 0, struk: 0, basketSize: 0, pricePoint: 0 },
+        crewMonthlyTarget,
+        weeklyTargetPcts,
+        crewWeeklyTargets,
+        currentWeek,
       })
     }
 
@@ -112,6 +126,13 @@ export async function GET(request: NextRequest) {
     const strukMap = new Map(strukResult.map(r => [r.crewId, Number(r.count)]))
 
     // Build crew stats
+    // ── Per-crew target calculation ──
+    const crewCount = group.crews.length
+    const crewMonthlyTarget = crewCount > 0 ? Math.round(group.monthlyTarget / crewCount) : 0
+    const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target]
+    const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
+    const crewCurrentWeekTarget = crewWeeklyTargets[currentWeek - 1] ?? 0
+
     const crews = group.crews.map(crew => {
       const agg = aggMap.get(crew.id)
       const struk = strukMap.get(crew.id) ?? 0
@@ -119,6 +140,10 @@ export async function GET(request: NextRequest) {
       const settle = agg?._sum.settle ?? 0
       const basketSize = struk > 0 ? qty / struk : 0
       const pricePoint = qty > 0 ? settle / qty : 0
+
+      // Achievement: compare period settle against period target
+      const monthAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((settle / crewMonthlyTarget) * 100), 999) : 0
+      const weekAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((settle / crewCurrentWeekTarget) * 100), 999) : 0
 
       return {
         id: crew.id,
@@ -131,6 +156,10 @@ export async function GET(request: NextRequest) {
         basketSize: Math.round(basketSize * 100) / 100,
         pricePoint: Math.round(pricePoint),
         itemCount: agg?._count ?? 0,
+        crewMonthlyTarget,
+        crewCurrentWeekTarget,
+        crewMonthlyAchievement: monthAchievement,
+        crewWeeklyAchievement: weekAchievement,
       }
     })
 
@@ -161,6 +190,10 @@ export async function GET(request: NextRequest) {
         basketSize: groupBasketSize,
         pricePoint: groupPricePoint,
       },
+      crewMonthlyTarget,
+      weeklyTargetPcts,
+      crewWeeklyTargets,
+      currentWeek,
     })
   } catch (error) {
     console.error('Group detail error:', error)

@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 
 // ─────────────────────────────────────────────
 // PUT /api/claims/unclaim — Unclaim sales (remove crew assignment)
 // ─────────────────────────────────────────────
 export async function PUT(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const body = await request.json()
     const { saleIds } = body as { saleIds?: string[] }
 
     if (!saleIds || !Array.isArray(saleIds) || saleIds.length === 0) {
       return NextResponse.json(
         { error: 'saleIds harus berupa array yang tidak kosong' },
+        { status: 400 },
+      )
+    }
+
+    // SEC-05: Cap array size to prevent abuse
+    if (saleIds.length > 500) {
+      return NextResponse.json(
+        { error: 'Maksimal 500 item per request' },
         { status: 400 },
       )
     }
