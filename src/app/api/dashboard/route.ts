@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     // Struk counts per crew per period — using COUNT(DISTINCT idPenjualan)
     // idPenjualan = transaction/receipt ID from POS system
     // One struk can have multiple item rows sharing the same idPenjualan
-    // Quoted identifiers for PostgreSQL compatibility (also works in SQLite)
+    // Quoted identifiers for PostgreSQL
     const [todayStrukRaw, weekStrukRaw, monthStrukRaw, allTimeStrukRaw] = crewIds.length > 0
       ? await Promise.all([
           db.$queryRaw<Array<{ crewId: string; count: number }>>`

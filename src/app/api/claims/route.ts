@@ -370,9 +370,9 @@ export async function GET(request: NextRequest) {
     // Collect AND conditions that need OR (search, date) — combine them properly
     const andConditions: Record<string, any>[] = []
 
-    // Search across kodeExtend, brand, dept, and crew name (case-insensitive for SQLite via LOWER())
+    // Search across kodeExtend, brand, dept, and crew name (case-insensitive via LOWER())
     if (search) {
-      // SQLite doesn't support Prisma's mode:'insensitive', so use raw query with LOWER()
+      // Case-insensitive search via LOWER()
       const searchPattern = `%${search.toLowerCase()}%`
       const matchingIds = await db.$queryRaw<{ id: string }[]>`
         SELECT DISTINCT s.id FROM Sale s

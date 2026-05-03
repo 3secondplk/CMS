@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {}
     if (groupId) where.groupId = groupId
     if (search) {
-      // SQLite case-insensitive search via LOWER()
+      // Case-insensitive search via LOWER()
       const searchPattern = `%${search.toLowerCase()}%`
       const matchingIds = await db.$queryRaw<{ id: string }[]>`
         SELECT id FROM Crew WHERE LOWER(name) LIKE ${searchPattern} OR LOWER(employeeId) LIKE ${searchPattern}

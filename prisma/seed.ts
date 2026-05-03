@@ -371,8 +371,8 @@ async function main() {
   console.log('\n  👥 By Crew:')
   for (const c of crewBreakdown.sort((a, b) => (b._sum.settle || 0) - (a._sum.settle || 0))) {
     const crew = allCrews.find(cr => cr.id === c.crewId)
-    const name = crew ? `${crew.name} (${crew.employeeId})` : c.crewId
-    console.log(`     ${name.padEnd(30)} → ${(c._count.id + '').padStart(3)} items,  Rp ${(c._sum.settle || 0).toLocaleString('id-ID')}`)
+    const displayName = crew ? `${crew.name ?? crew.employeeId ?? '?'} (${crew.employeeId ?? '?'})` : (c.crewId ?? 'Unknown')
+    console.log(`     ${(displayName ?? 'Unknown').padEnd(30)} → ${(c._count.id + '').padStart(3)} items,  Rp ${(c._sum.settle || 0).toLocaleString('id-ID')}`)
   }
 
   console.log('\n' + '═'.repeat(60))
