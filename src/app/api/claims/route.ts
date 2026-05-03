@@ -659,18 +659,19 @@ export async function PUT(request: NextRequest) {
     })
     const totalSettle = claimedSales.reduce((sum, s) => sum + s.settle, 0)
 
+    // Log claim activity (fire-and-forget)
+    const crewName = crew?.name || 'Unknown'
+    logActivity('CLAIM', `Claim ${claimedCount} data ke ${crewName} (${fmtRpShort(totalSettle)})`, crewName, undefined, { claimedCount, totalSettle, crewId })
+
     return NextResponse.json({
       success: true,
-      message: `Berhasil meng-claim ${claimedCount} data penjualan untuk ${crew.name}`,
+      message: `Berhasil meng-claim ${claimedCount} data penjualan untuk ${crewName}`,
       code: 'SUCCESS',
       claimedCount,
       totalSettle,
       crewId,
-      crewName: crew.name,
+      crewName,
     })
-
-    // Log claim activity (fire-and-forget after response)
-    logActivity('CLAIM', `Claim ${claimedCount} data ke ${crew.name} (${fmtRpShort(totalSettle)})`, crew.name, undefined, { claimedCount, totalSettle, crewId: crew.id })
   } catch (error) {
     console.error('Claim sales error:', error)
     return NextResponse.json(
@@ -743,10 +744,10 @@ export async function PATCH(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({ success: true, message: 'Data berhasil diperbarui', sale: updated })
-
     // Log edit activity
-    logActivity('EDIT', `Edit data ${sale.kodeExtend}`, sale.crew?.name || undefined, sale.id, { changedFields: Object.keys(data) })
+    logActivity('EDIT', `Edit data ${id}`, undefined, id, { changedFields: Object.keys(data) })
+
+    return NextResponse.json({ success: true, message: 'Data berhasil diperbarui', sale: updated })
   } catch (error) {
     console.error('Edit claim error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan saat mengubah data' }, { status: 500 })
@@ -765,7 +766,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'ID harus diisi' }, { status: 400 })
     }
 
-    const sale = await db.sale.findUnique({ where: { id } })
+    const sale = await db.sale.findUnique({
+      where: { id },
+      include: { crew: { select: { name: true } } },
+    })
     if (!sale) {
       return NextResponse.json({ error: 'Data tidak ditemukan' }, { status: 404 })
     }
