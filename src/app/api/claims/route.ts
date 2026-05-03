@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { Prisma } from '@prisma/client'
 import * as XLSX from 'xlsx'
 
 // ─────────────────────────────────────────────
@@ -35,33 +34,63 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parse Excel — row 1 is title "Laporan Penjualan", row 2 is headers
+    // Parse Excel — supports two formats:
+    // Format A: Row 0 = title "Laporan Penjualan", Row 1 = headers, Row 2+ = data
+    // Format B: Row 0 = headers, Row 1+ = data (no title row)
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     const workbook = XLSX.read(buffer, { type: 'buffer' })
     const sheetName = workbook.SheetNames[0]
     const worksheet = workbook.Sheets[sheetName]
-    const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' })
 
-    if (jsonData.length === 0) {
+    // Use header:1 mode to get raw arrays — this lets us detect the header row properly
+    const rawRows = XLSX.utils.sheet_to_json<(string | number)[]>(worksheet, { header: 1, defval: '' })
+
+    if (rawRows.length === 0) {
       return NextResponse.json({ error: 'File kosong atau tidak dapat dibaca' }, { status: 400 })
     }
 
-    // Validate required columns from header row (first data row = actual headers)
-    const headerRow = jsonData[0]
+    // Find the header row by looking for required column names
     const requiredColumns = ['Tanggal', 'Kode Extend', 'Settle', 'Qty']
-    const missingColumns = requiredColumns.filter((col) => !(col in headerRow))
-    // Also check optional columns that we'll store if present
-    const optionalColumns = ['ID Penjualan', 'Status Retention', 'Retention Code', 'Pembayaran', 'Program', 'Channel Stock', 'Brand', 'Dept', 'Modul', 'Ukuran', 'HJP', 'Netto', 'Diskon', 'Diskon Rp', 'Potongan', 'Potongan V']
-    if (missingColumns.length > 0) {
+    let headerRowIndex = -1
+    for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
+      const rowValues = rawRows[i].map(v => String(v).trim())
+      const hasAllRequired = requiredColumns.every(col => rowValues.includes(col))
+      if (hasAllRequired) {
+        headerRowIndex = i
+        break
+      }
+    }
+
+    if (headerRowIndex === -1) {
       return NextResponse.json(
         { error: `Format file tidak valid. Pastikan file memiliki kolom: Tanggal, Kode Extend, Settle, Qty` },
         { status: 400 },
       )
     }
 
-    // Data rows start after header row
-    const dataRows = jsonData.slice(1)
+    // Extract column names from the header row
+    const headerCols = rawRows[headerRowIndex].map(v => String(v).trim())
+    // Build a column index map
+    const colIndex: Record<string, number> = {}
+    for (let c = 0; c < headerCols.length; c++) {
+      if (headerCols[c]) colIndex[headerCols[c]] = c
+    }
+
+    // Helper to get cell value by column name
+    const getVal = (row: (string | number)[], colName: string): string | number => {
+      const idx = colIndex[colName]
+      return idx !== undefined ? row[idx] : ''
+    }
+
+    // Data rows start after the header row
+    const dataRows = rawRows.slice(headerRowIndex + 1).map(row => {
+      const obj: Record<string, unknown> = {}
+      for (const [colName, idx] of Object.entries(colIndex)) {
+        obj[colName] = row[idx] !== undefined ? row[idx] : ''
+      }
+      return obj
+    })
 
     const uniqueProducts = new Set<string>()
     let totalQty = 0
@@ -77,7 +106,9 @@ export async function POST(request: NextRequest) {
     }[] = []
 
     for (const row of dataRows) {
-      const tanggal = String(row['Tanggal'] || '')
+      // Normalize tanggal: strip time portion, keep only date (YYYY-MM-DD)
+      const rawTanggal = String(row['Tanggal'] || '').trim()
+      const tanggal = rawTanggal.replace(/\s.*$/, '').substring(0, 10) || rawTanggal.substring(0, 10)
       const idPenjualan = String(row['ID Penjualan'] || '')
       const statusRetention = String(row['Status Retention'] || '')
       const retentionCode = String(row['Retention Code'] || '')
@@ -299,9 +330,12 @@ export async function GET(request: NextRequest) {
       where.crewId = crewId
     }
 
-    // Search across kodeExtend, brand, dept, and crew name (PG-01: case-insensitive for PostgreSQL)
+    // Collect AND conditions that need OR (search, date) — combine them properly
+    const andConditions: Record<string, any>[] = []
+
+    // Search across kodeExtend, brand, dept, and crew name
     if (search) {
-      const searchConditions: Prisma.SaleWhereInput[] = [
+      const searchConditions: Record<string, any>[] = [
         { kodeExtend: { contains: search } },
         { brand: { contains: search } },
         { dept: { contains: search } },
@@ -310,29 +344,38 @@ export async function GET(request: NextRequest) {
       if (claimed !== 'false') {
         searchConditions.push({ crew: { name: { contains: search } } })
       }
-      where.OR = searchConditions
+      andConditions.push({ OR: searchConditions })
     }
 
     // Date range filter on tanggal
-    // Frontend sends ISO format (YYYY-MM-DD), DB stores DD/MM/YYYY
-    // Convert to DD/MM/YYYY prefix for string comparison
+    // Handle both "2026-05-03" (date-only) and "2026-05-03 09:03" (with time) formats
     if (dateFrom || dateTo) {
-      const tanggalFilter: Record<string, unknown> = {}
-      if (dateFrom) {
-        // Convert YYYY-MM-DD → DD/MM/YYYY for prefix matching
-        const [y, m, d] = dateFrom.split('-')
-        if (y && m && d) {
-          tanggalFilter.gte = `${d}/${m}/${y}`
+      const tanggalOrConditions: Record<string, any>[] = []
+      if (dateFrom && dateTo) {
+        // Same-day filter: use startsWith to catch both "2026-05-03" and "2026-05-03 09:03"
+        if (dateFrom === dateTo) {
+          tanggalOrConditions.push({ tanggal: dateFrom })
+          tanggalOrConditions.push({ tanggal: { startsWith: dateFrom } })
+        } else {
+          // Range filter: gte/lte works for date-only strings
+          // Also add startsWith for from-date to catch "2026-05-03 09:03" >= "2026-05-03"
+          tanggalOrConditions.push({ tanggal: { gte: dateFrom, lte: dateTo } })
+          tanggalOrConditions.push({ tanggal: { startsWith: dateFrom } })
+          tanggalOrConditions.push({ tanggal: { startsWith: dateTo } })
         }
+      } else if (dateFrom) {
+        tanggalOrConditions.push({ tanggal: { gte: dateFrom } })
+        tanggalOrConditions.push({ tanggal: { startsWith: dateFrom } })
+      } else {
+        tanggalOrConditions.push({ tanggal: { lte: dateTo } })
+        tanggalOrConditions.push({ tanggal: { startsWith: dateTo } })
       }
-      if (dateTo) {
-        const [y, m, d] = dateTo.split('-')
-        if (y && m && d) {
-          // Append a high suffix so lte captures all times within the day
-          tanggalFilter.lte = `${d}/${m}/${y} 23:59`
-        }
-      }
-      where.tanggal = tanggalFilter
+      andConditions.push({ OR: tanggalOrConditions })
+    }
+
+    // Combine all AND conditions
+    if (andConditions.length > 0) {
+      where.AND = andConditions
     }
 
     // Program filter
