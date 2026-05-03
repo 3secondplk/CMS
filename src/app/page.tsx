@@ -118,8 +118,8 @@ const fmtNum = (n: number) => new Intl.NumberFormat('id-ID').format(n)
 
 const fadeIn = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -20 } }
 const stagger = { animate: { transition: { staggerChildren: 0.06 } } }
-const tabTransition = { initial: { opacity: 0, y: 16, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -10, scale: 0.99 }, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } }
-const inViewFadeUp = { initial: { opacity: 0, y: 24 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-40px' }, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } }
+const tabTransition = { initial: { opacity: 0, y: 16, scale: 0.98 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -10, scale: 0.99 }, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] } }
+const inViewFadeUp = { initial: { opacity: 0, y: 24 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-40px' as const }, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] } }
 
 function getWIBDate() {
   const now = new Date()
@@ -2710,7 +2710,7 @@ export default function Home() {
                           className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 flex items-center justify-center"
                           initial={{ width: 0 }}
                           animate={{ width: `${(claimStats.claimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100}%` }}
-                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] as [number, number, number, number], delay: 0.2 }}
                           style={{ minWidth: claimStats.claimedCount > 0 ? '2rem' : '0' }}
                         >
                           {(claimStats.claimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100 > 10 && (
@@ -2723,7 +2723,7 @@ export default function Home() {
                           className="h-full bg-gradient-to-r from-amber-400 to-orange-500 flex items-center justify-center"
                           initial={{ width: 0 }}
                           animate={{ width: `${(claimStats.unclaimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100}%` }}
-                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.4 }}
+                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] as [number, number, number, number], delay: 0.4 }}
                           style={{ minWidth: claimStats.unclaimedCount > 0 ? '2rem' : '0' }}
                         >
                           {(claimStats.unclaimedCount / (claimStats.claimedCount + claimStats.unclaimedCount)) * 100 > 10 && (
