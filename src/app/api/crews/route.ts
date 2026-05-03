@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { Prisma } from '@prisma/client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,22 +10,10 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {}
     if (groupId) where.groupId = groupId
     if (search) {
-      // Case-insensitive search via LOWER()
-      const searchPattern = `%${search.toLowerCase()}%`
-      const matchingIds = await db.$queryRaw<{ id: string }[]>`
-        SELECT id FROM Crew WHERE LOWER(name) LIKE ${searchPattern} OR LOWER(employeeId) LIKE ${searchPattern}
-      `
-      if (matchingIds.length > 0) {
-        where.id = { in: matchingIds.map(m => m.id) }
-      } else {
-        // No matches
-        if (groupId) {
-          // Still return empty array but process group filter
-          const crews = await db.crew.findMany({ where: { groupId }, include: { group: true }, orderBy: { createdAt: 'asc' } })
-          return NextResponse.json(crews.length === 0 ? [] : crews.filter(() => false))
-        }
-        return NextResponse.json([])
-      }
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { employeeId: { contains: search, mode: 'insensitive' } },
+      ]
     }
 
     const crews = await db.crew.findMany({
