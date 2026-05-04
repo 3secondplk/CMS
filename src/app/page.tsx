@@ -239,17 +239,29 @@ export default function Home() {
     return () => clearTimeout(t)
   }, [activeTab])
 
-  // Fetch claim sales history — staggered 600ms after mount
+  // Fetch claim sales history — stable callback, params read from refs
+  const claimFilterRefs = useRef({
+    search: '', dateFrom: '', dateTo: '', program: '', crew: '', showClaimed: 'unclaimed' as string,
+  })
+  // Keep refs in sync with state (no re-creation of fetchClaims)
+  claimFilterRefs.current.search = deferredClaimSearch
+  claimFilterRefs.current.dateFrom = claimDateFrom
+  claimFilterRefs.current.dateTo = claimDateTo
+  claimFilterRefs.current.program = claimFilterProgram
+  claimFilterRefs.current.crew = claimFilterCrew
+  claimFilterRefs.current.showClaimed = claimShowClaimed
+
   const fetchClaims = useCallback(async (page: number) => {
     setClaimsLoading(true)
     try {
+      const f = claimFilterRefs.current
       const params = new URLSearchParams({ page: String(page), limit: '50' })
-      if (deferredClaimSearch) params.set('search', deferredClaimSearch)
-      if (claimDateFrom) params.set('dateFrom', claimDateFrom)
-      if (claimDateTo) params.set('dateTo', claimDateTo)
-      if (claimFilterProgram) params.set('program', claimFilterProgram)
-      if (claimFilterCrew) params.set('crewId', claimFilterCrew)
-      if (claimShowClaimed !== 'all') params.set('claimed', claimShowClaimed === 'claimed' ? 'true' : 'false')
+      if (f.search) params.set('search', f.search)
+      if (f.dateFrom) params.set('dateFrom', f.dateFrom)
+      if (f.dateTo) params.set('dateTo', f.dateTo)
+      if (f.program) params.set('program', f.program)
+      if (f.crew) params.set('crewId', f.crew)
+      if (f.showClaimed !== 'all') params.set('claimed', f.showClaimed === 'claimed' ? 'true' : 'false')
       const r = await safeFetch(`/api/claims?${params}`)
       const d = await r.json()
       setClaimSales(d.sales || [])
@@ -259,15 +271,22 @@ export default function Home() {
       if (d.summary) setClaimSummary(d.summary)
     } catch { /* silent */ }
     finally { setClaimsLoading(false) }
-  }, [deferredClaimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed])
+  }, []) // stable — reads latest filter values from refs
 
-  // Fetch claims only when claims tab is active (PERF: lazy load)
-  const claimsInitialLoadedRef = useRef(false)
+  // Re-fetch claims when tab becomes active OR any filter changes
+  const prevFilterKeyRef = useRef('')
+  const prevActiveTabRef = useRef(activeTab)
   useEffect(() => {
-    if (activeTab !== 'claims' || claimsInitialLoadedRef.current) return
-    claimsInitialLoadedRef.current = true
+    const tabChanged = prevActiveTabRef.current !== activeTab
+    prevActiveTabRef.current = activeTab
+    if (activeTab !== 'claims') return
+    const key = `${deferredClaimSearch}|${claimDateFrom}|${claimDateTo}|${claimFilterProgram}|${claimFilterCrew}|${claimShowClaimed}`
+    // Always fetch on tab switch to claims, then only on actual filter changes
+    if (!tabChanged && key === prevFilterKeyRef.current) return
+    prevFilterKeyRef.current = key
+    setClaimPage(1)
     fetchClaims(1)
-  }, [activeTab, fetchClaims])
+  }, [activeTab, deferredClaimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed, fetchClaims])
 
   // Fetch programs for filter dropdown — staggered 500ms
   const fetchPrograms = useCallback(async () => {
@@ -307,9 +326,9 @@ export default function Home() {
       fetchDashboard()
       setDashInitialLoaded(true)
     }
-    else if (activeTab === 'claims') fetchClaims(1)
+    // NOTE: claims refetch is handled by the dedicated filter-change effect above
     else if (activeTab === 'management' && isAdmin) fetchManagement()
-  }, [activeTab, fetchDashboard, fetchClaims, fetchManagement, isAdmin])
+  }, [activeTab, fetchDashboard, fetchManagement, isAdmin])
 
   // Scroll listener for back-to-top button
   useEffect(() => {
