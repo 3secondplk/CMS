@@ -50,7 +50,7 @@ export function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-const deptColorMap = ['bg-emerald-500', 'bg-amber-500', 'bg-purple-500', 'bg-cyan-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
+const deptColorMap = ['bg-[#E14227]', 'bg-amber-500', 'bg-purple-500', 'bg-[#9DB1CC]', 'bg-rose-500', 'bg-indigo-500', 'bg-[#9DB1CC]', 'bg-orange-500']
 export function getDeptColor(dept: string): string {
   let hash = 0
   for (let i = 0; i < dept.length; i++) hash = dept.charCodeAt(i) + ((hash << 5) - hash)
@@ -85,7 +85,7 @@ export function getMonthRange(): { from: string; to: string } {
 }
 
 // ─── Safe Fetch with Timeout (8s) ────────────────────
-export async function safeFetch(url: string, opts?: RequestInit, timeoutMs = 8000): Promise<Response> {
+export async function safeFetch(url: string, opts?: RequestInit, timeoutMs = 30000): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -178,16 +178,18 @@ export function AchievementBadge({ pct }: { pct: number }) {
   return <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${color} ${shimmer}`}>{icon}{label}</span>
 }
 
-export function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value: number; size?: number; strokeWidth?: number }) {
+export function CircularProgress({ value, size = 100, strokeWidth = 8, showLabel = true }: { value: number; size?: number; strokeWidth?: number; showLabel?: boolean }) {
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
   const offset = circumference - (Math.min(value, 100) / 100) * circumference
   const clampedVal = Math.min(Math.max(value, 0), 100)
 
   let strokeColor = '#dc2626'
-  if (clampedVal >= 75) strokeColor = '#059669'
+  if (clampedVal >= 75) strokeColor = '#E14227'
   else if (clampedVal >= 50) strokeColor = '#d97706'
   else if (clampedVal >= 25) strokeColor = '#0891b2'
+
+  const fontSize = size < 30 ? 'text-[8px]' : size < 50 ? 'text-[10px]' : size < 70 ? 'text-xs' : 'text-lg'
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
@@ -197,9 +199,11 @@ export function CircularProgress({ value, size = 100, strokeWidth = 8 }: { value
           initial={{ strokeDashoffset: circumference }} animate={{ strokeDashoffset: offset }} transition={{ duration: 1.2, ease: 'easeOut' }}
           strokeDasharray={circumference} />
       </svg>
-      <div className="absolute flex flex-col items-center justify-center">
-        <span className="text-lg font-bold" style={{ color: strokeColor }}>{Math.round(clampedVal)}%</span>
-      </div>
+      {showLabel && (
+        <div className="absolute flex flex-col items-center justify-center">
+          <span className={`font-bold ${fontSize}`} style={{ color: strokeColor }}>{Math.round(clampedVal)}%</span>
+        </div>
+      )}
     </div>
   )
 }

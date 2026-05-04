@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import * as crypto from 'crypto'
+import { logActivity } from '@/lib/activity-logger'
 
 // ─── Stateless JWT for serverless (Vercel) compatibility ───
 // SEC-02: No fallback — NEXT_AUTH_SECRET must be set in production
@@ -87,6 +88,9 @@ export async function POST(request: NextRequest) {
       path: '/',
     })
 
+    // Log login activity (fire-and-forget)
+    logActivity('LOGIN', { description: 'Login berhasil' }).catch(() => {})
+
     return NextResponse.json({
       success: true,
       admin: { id: admin.id, username: admin.username, name: admin.name },
@@ -123,6 +127,9 @@ export async function GET() {
 
 export async function DELETE() {
   try {
+    // Log logout activity before clearing cookie
+    await logActivity('LOGOUT', { description: 'Logout berhasil' })
+
     const { cookies } = await import('next/headers')
     const cookieStore = await cookies()
     cookieStore.delete('admin_token')

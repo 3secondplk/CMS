@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import * as XLSX from 'xlsx'
 import { requireAuth } from '@/lib/auth'
+import { logActivity } from '@/lib/activity-logger'
 
 // ─────────────────────────────────────────────
 // POST /api/claims — Upload Excel & Import as unclaimed sales
@@ -225,6 +226,12 @@ export async function POST(request: NextRequest) {
         crewId: null,
       })),
     })
+
+    // Log import activity (fire-and-forget)
+    logActivity('IMPORT_SALES', {
+      description: `Import ${created.count} data penjualan`,
+      details: { totalRows: created.count, totalSettle: newTotalSettle },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,
@@ -502,6 +509,13 @@ export async function PUT(request: NextRequest) {
     })
     const totalSettle = claimedSales.reduce((sum, s) => sum + s.settle, 0)
 
+    // Log claim activity (fire-and-forget)
+    logActivity('CLAIM_SALES', {
+      description: `Claim ${claimedCount} penjualan untuk ${crew.name}`,
+      crewName: crew.name,
+      details: { count: claimedCount, crewId, totalSettle },
+    }).catch(() => {})
+
     return NextResponse.json({
       success: true,
       message: `Berhasil meng-claim ${claimedCount} data penjualan untuk ${crew.name}`,
@@ -610,6 +624,13 @@ export async function DELETE(request: NextRequest) {
     if (!sale) {
       return NextResponse.json({ error: 'Data tidak ditemukan' }, { status: 404 })
     }
+
+    // Log delete activity (fire-and-forget)
+    logActivity('DELETE_SALE', {
+      description: `Hapus penjualan: ${sale.kodeExtend}`,
+      saleId: sale.id,
+      details: { saleId: sale.id },
+    }).catch(() => {})
 
     await db.sale.delete({ where: { id } })
 

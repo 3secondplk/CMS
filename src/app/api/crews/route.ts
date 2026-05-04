@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
+import { logActivity } from '@/lib/activity-logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -99,6 +100,13 @@ export async function POST(request: NextRequest) {
       include: { group: true },
     })
 
+    // Log create crew activity (fire-and-forget)
+    logActivity('CREATE_CREW', {
+      description: `Tambah crew: ${name}`,
+      crewName: name,
+      details: { name },
+    }).catch(() => {})
+
     return NextResponse.json(crew, { status: 201 })
   } catch (error: unknown) {
     console.error('Create crew error:', error)
@@ -162,6 +170,17 @@ export async function DELETE(request: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ error: 'ID crew harus diisi' }, { status: 400 })
+    }
+
+    const existing = await db.crew.findUnique({ where: { id } })
+
+    if (existing) {
+      // Log delete crew activity (fire-and-forget)
+      logActivity('DELETE_CREW', {
+        description: `Hapus crew: ${existing.name}`,
+        crewName: existing.name,
+        details: { name: existing.name },
+      }).catch(() => {})
     }
 
     await db.crew.delete({ where: { id } })

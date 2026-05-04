@@ -219,38 +219,28 @@ export async function GET(request: NextRequest) {
         break
     }
 
-    // Calculate totals — include ALL sales (claimed + unclaimed)
-    const [allTodayAgg, allWeekAgg, allMonthAgg, totalTxRaw] = await Promise.all([
-      db.sale.aggregate({
-        _sum: { settle: true, qty: true },
-        where: { tanggal: { startsWith: todayStr } },
-      }),
-      db.sale.aggregate({
-        _sum: { settle: true, qty: true },
-        where: { tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } },
-      }),
-      db.sale.aggregate({
-        _sum: { settle: true, qty: true },
-        where: { tanggal: { startsWith: monthPrefix } },
-      }),
-      db.$queryRaw<Array<{ count: number }>>`
-        SELECT COUNT(DISTINCT "idPenjualan") as count
-        FROM "Sale"
-        WHERE "idPenjualan" IS NOT NULL
-      `,
-    ])
-
-    const totalTransactions = Number(totalTxRaw[0]?.count ?? 0)
-
+    // Calculate totals
     const totals = {
-      today: allTodayAgg._sum.settle ?? 0,
-      week: allWeekAgg._sum.settle ?? 0,
-      month: allMonthAgg._sum.settle ?? 0,
-      todayQty: allTodayAgg._sum.qty ?? 0,
-      weekQty: allWeekAgg._sum.qty ?? 0,
-      monthQty: allMonthAgg._sum.qty ?? 0,
-      totalTransactions,
+      today: crewStats.reduce((s, c) => s + c.todayTotal, 0),
+      week: crewStats.reduce((s, c) => s + c.weekTotal, 0),
+      month: crewStats.reduce((s, c) => s + c.monthTotal, 0),
+      todayQty: crewStats.reduce((s, c) => s + c.todayQty, 0),
+      weekQty: crewStats.reduce((s, c) => s + c.weekQty, 0),
+      monthQty: crewStats.reduce((s, c) => s + c.monthQty, 0),
     }
+
+    // Count claimed/unclaimed across all sales + imported data per period (ALL sales, not just crew-assigned)
+    const [claimedAgg, unclaimedAgg, allSalesAgg, importedTodayAgg, importedWeekAgg, importedMonthAgg] = await Promise.all([
+      db.sale.count({ where: { crewId: { not: null } } }),
+      db.sale.count({ where: { crewId: null } }),
+      db.sale.aggregate({ _sum: { settle: true, qty: true } }),
+      // ALL imported sales today (including unclaimed)
+      db.sale.aggregate({ _sum: { settle: true, qty: true }, where: { tanggal: { startsWith: todayStr } } }),
+      // ALL imported sales this week (including unclaimed)
+      db.sale.aggregate({ _sum: { settle: true, qty: true }, where: { tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } } }),
+      // ALL imported sales this month (including unclaimed)
+      db.sale.aggregate({ _sum: { settle: true, qty: true }, where: { tanggal: { startsWith: monthPrefix } } }),
+    ])
 
     // --- Trends: compare current period totals with previous period ---
     const formatDateStr = (d: Date) =>
@@ -279,12 +269,12 @@ export async function GET(request: NextRequest) {
     const saleGroupFilter = groupId ? { crew: { groupId } } : {}
 
     // PERF: Merge groups + recentSales + trend queries into single parallel batch (was 2 sequential rounds, now 1)
-    const [groups, recentSales, yesterdayAgg, lastWeekAgg, lastMonthAgg] = await Promise.all([
+    const [groups, recentSales, yesterdayAgg, lastWeekAgg, lastMonthAgg, lastWeekTotalsAgg] = await Promise.all([
       db.group.findMany({
         include: { crews: { select: { id: true } } },
       }),
       db.sale.findMany({
-        take: 25,
+        take: 10,
         where: { crewId: { not: null } },
         include: {
           crew: {
@@ -305,6 +295,12 @@ export async function GET(request: NextRequest) {
         _sum: { settle: true },
         where: { ...saleGroupFilter, tanggal: { startsWith: lastMonthStr } },
       }),
+      // Last week totals for comparison view (settle, qty, transactions)
+      db.sale.aggregate({
+        _sum: { settle: true, qty: true },
+        _count: true,
+        where: { ...saleGroupFilter, tanggal: { gte: lastWeekStartStr, lt: lastWeekEndNextDayStr } },
+      }),
     ])
 
     const calcTrend = (current: number, previous: number | null) => {
@@ -321,9 +317,10 @@ export async function GET(request: NextRequest) {
     }
 
     const trends = {
-      today: calcTrend(totals.today, yesterdayAgg._sum.settle),
-      week: calcTrend(totals.week, lastWeekAgg._sum.settle),
-      month: calcTrend(totals.month, lastMonthAgg._sum.settle),
+      // Compare like-for-like: imported data (ALL sales) vs previous period's ALL sales
+      today: calcTrend(importedTodayAgg._sum.settle ?? 0, yesterdayAgg._sum.settle),
+      week: calcTrend(importedWeekAgg._sum.settle ?? 0, lastWeekAgg._sum.settle),
+      month: calcTrend(importedMonthAgg._sum.settle ?? 0, lastMonthAgg._sum.settle),
     }
 
     // Group/Zoning achievements — use actual weekly data from weekMap
@@ -378,11 +375,35 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       crewStats: sortedCrews,
-      totals,
+      totals: {
+        ...totals,
+        // Claimed-only period totals (from crewStats — sales assigned to crews)
+        today: crewStats.reduce((s, c) => s + c.todayTotal, 0),
+        week: crewStats.reduce((s, c) => s + c.weekTotal, 0),
+        month: crewStats.reduce((s, c) => s + c.monthTotal, 0),
+        todayQty: crewStats.reduce((s, c) => s + c.todayQty, 0),
+        weekQty: crewStats.reduce((s, c) => s + c.weekQty, 0),
+        monthQty: crewStats.reduce((s, c) => s + c.monthQty, 0),
+        // ALL imported data totals (from Excel imports, including unclaimed)
+        totalTransactions: claimedAgg + unclaimedAgg,
+        totalSettle: allSalesAgg._sum.settle ?? 0,
+        totalQty: allSalesAgg._sum.qty ?? 0,
+        importedToday: importedTodayAgg._sum.settle ?? 0,
+        importedTodayQty: importedTodayAgg._sum.qty ?? 0,
+        importedWeek: importedWeekAgg._sum.settle ?? 0,
+        importedWeekQty: importedWeekAgg._sum.qty ?? 0,
+        importedMonth: importedMonthAgg._sum.settle ?? 0,
+        importedMonthQty: importedMonthAgg._sum.qty ?? 0,
+      },
       trends,
       groupAchievements,
       topCrews,
       recentSales,
+      lastWeekTotals: {
+        settle: lastWeekTotalsAgg._sum.settle ?? 0,
+        qty: lastWeekTotalsAgg._sum.qty ?? 0,
+        transactions: lastWeekTotalsAgg._count ?? 0,
+      },
       dateInfo: {
         today: todayStr,
         currentWeek,
@@ -391,6 +412,8 @@ export async function GET(request: NextRequest) {
         currentMonth,
         currentYear,
       },
+      claimedCount: claimedAgg,
+      unclaimedCount: unclaimedAgg,
     })
   } catch (error) {
     console.error('Dashboard error:', error)

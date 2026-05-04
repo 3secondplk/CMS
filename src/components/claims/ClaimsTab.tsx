@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,12 +15,95 @@ import {
   Clock, Flame, Sparkles, Users, Calendar, CalendarDays, CalendarRange,
   Package, PartyPopper, FileSpreadsheet, Edit2, X,
   ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronRight,
-  SlidersHorizontal, ChevronDown,
+  SlidersHorizontal, ChevronDown, Zap, Trophy, BarChart3,
 } from 'lucide-react'
 import { fmtRp, fmtNum, fadeIn, stagger, AnimatedCounter, SkeletonRow, timeAgo, getDeptColor, getPageNumbers, getWeekRange, getMonthRange } from '@/lib/cms-utils'
 import type { ClaimSale, Crew } from '@/lib/cms-types'
 import UploadModal from '@/components/modals/UploadModal'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
+
+// Lightweight count-up animator for ClaimsTab
+const CountUp = ({ value, format }: { value: number; format: (n: number) => string }) => {
+  const [display, setDisplay] = React.useState(0)
+  React.useEffect(() => {
+    const end = Math.abs(value)
+    const duration = 1200
+    const steps = 75
+    const increment = end / steps
+    let current = 0
+    const timer = setInterval(() => {
+      current += increment
+      if (current >= end) { setDisplay(end); clearInterval(timer) }
+      else setDisplay(Math.floor(current))
+    }, duration / steps)
+    return () => clearInterval(timer)
+  }, [value])
+  return <>{format(display)}</>
+}
+
+// ─── Claim Progress Ring (SVG circular) ───────────────
+const ClaimProgressRing = ({ percentage, size = 140, strokeWidth = 10 }: { percentage: number; size?: number; strokeWidth?: number }) => {
+  const [animatedPct, setAnimatedPct] = useState(0)
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (animatedPct / 100) * circumference
+  const center = size / 2
+
+  useEffect(() => {
+    let current = 0
+    const end = Math.min(Math.max(percentage, 0), 100)
+    const steps = 60
+    const duration = 1200
+    const increment = end / steps
+    const timer = setInterval(() => {
+      current += increment
+      if (current >= end) { setAnimatedPct(end); clearInterval(timer) }
+      else setAnimatedPct(Math.floor(current * 10) / 10)
+    }, duration / steps)
+    return () => clearInterval(timer)
+  }, [percentage])
+
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="transform -rotate-90">
+        <defs>
+          <linearGradient id="ring-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#E14227" />
+            <stop offset="50%" stopColor="#D4956B" />
+            <stop offset="100%" stopColor="#B8321E" />
+          </linearGradient>
+        </defs>
+        {/* Background circle */}
+        <circle
+          cx={center} cy={center} r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-muted/30"
+        />
+        {/* Animated progress arc */}
+        <motion.circle
+          cx={center} cy={center} r={radius}
+          fill="none"
+          stroke="url(#ring-gradient)"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 1.2, ease: 'easeOut', delay: 0.15 }}
+        />
+      </svg>
+      {/* Center text */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-3xl sm:text-4xl font-extrabold bg-gradient-to-r from-[#E14227] to-[#D4956B] bg-clip-text text-transparent tabular-nums">
+          {Math.round(animatedPct)}%
+        </span>
+        <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground mt-0.5">Tingkat Klaim</span>
+      </div>
+    </div>
+  )
+}
 
 interface ClaimsTabProps {
   // Data
@@ -52,6 +135,8 @@ interface ClaimsTabProps {
   selectedClaimCrew: Crew | null
   claimCrewResults: Crew[]
   claimStats: { unclaimedCount: number; claimedCount: number; unclaimedSettle: number; claimedSettle: number; todayActivity: number; todaySettle: number; todayItems: number; todayStruk: number }
+  globalClaimedCount: number
+  globalUnclaimedCount: number
   activeQuickFilter: 'today' | 'week' | 'month' | 'all' | 'custom'
   activeFilterCount: number
   // Upload state
@@ -73,7 +158,7 @@ interface ClaimsTabProps {
   setClaimFilterCrew: (v: string) => void
   setClaimShowClaimed: (v: 'unclaimed' | 'claimed' | 'all') => void
   setClaimSortField: (v: string) => void
-  setClaimSortDir: (v: 'asc' | 'desc') => void
+  setClaimSortDir: (v: 'asc' | 'desc' | ((prev: 'asc' | 'desc') => 'asc' | 'desc')) => void
   setSelectedSaleIds: (s: Set<string>) => void
   setClaimCrewSearch: (v: string) => void
   setSelectedClaimCrewId: (v: string) => void
@@ -101,7 +186,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
     programs, crews, selectedSaleIds, claimCrewSearch, selectedClaimCrewId,
     claimSummary, isAdmin, todayStr,
     sortedClaimSales, selectedItemsTotal, selectedItemsPreview, selectedClaimCrew, claimCrewResults,
-    claimStats, activeQuickFilter, activeFilterCount,
+    claimStats, globalClaimedCount, globalUnclaimedCount, activeQuickFilter, activeFilterCount,
     uploading, uploadProgress, uploadResult, showUploadModal, isDragOver,
     claiming, showFilterPanel, batchSelectedIds,
     fileInputRef,
@@ -115,7 +200,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
   } = props
 
   return (
-    <TabsContent value="claims" className="mt-4 sm:mt-6 pb-8 overflow-hidden">
+    <TabsContent value="claims" className="mt-4 sm:mt-6 pb-24 md:pb-8 overflow-hidden">
       <motion.div {...stagger} className="space-y-6">
         {/* Upload Modal Dialog */}
         <UploadModal
@@ -131,29 +216,98 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
           handleDropFile={handleDropFile}
         />
 
+        {/* ── Claim Progress Overview — Progress Ring + Quick Stats ── */}
+        {!claimsLoading && claimStats && (() => {
+          const totalData = globalClaimedCount + globalUnclaimedCount
+          const claimRate = totalData > 0 ? (globalClaimedCount / totalData) * 100 : 0
+          if (totalData === 0) return null
+          return (
+            <motion.div {...fadeIn} transition={{ delay: 0.02 }}>
+              <div className="glass-card rounded-xl p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+                  {/* Progress Ring */}
+                  <div className="shrink-0">
+                    <ClaimProgressRing percentage={claimRate} size={130} strokeWidth={9} />
+                  </div>
+
+                  {/* Mini Stat Pills */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2.5 sm:gap-3 w-full sm:flex-1 sm:justify-center">
+                    {[
+                      {
+                        label: 'Belum Di-claim',
+                        value: globalUnclaimedCount,
+                        badgeClass: 'bg-[#F0D5C5] text-[#B8321E] dark:bg-[#B8321E]/40 dark:text-[#E6BAA3] border-[#E6BAA3]/60 dark:border-[#B8321E]/40',
+                        dotClass: 'bg-[#E6BAA3]',
+                        iconColor: 'text-[#E6BAA3]',
+                      },
+                      {
+                        label: 'Sudah Di-claim',
+                        value: globalClaimedCount,
+                        badgeClass: 'bg-[#F0D5C5] text-[#B8321E] dark:bg-[#B8321E]/40 dark:text-[#F07050] border-[#E6BAA3]/60 dark:border-[#B8321E]/40',
+                        dotClass: 'bg-[#E14227]',
+                        iconColor: 'text-[#E14227]',
+                      },
+                      {
+                        label: 'Total Data',
+                        value: totalData,
+                        badgeClass: 'bg-[#B5C7DB] text-[#7E95B3] dark:bg-[#7E95B3]/40 dark:text-[#B5C7DB] border-[#9DB1CC]/60 dark:border-[#7E95B3]/40',
+                        dotClass: 'bg-[#9DB1CC]',
+                        iconColor: 'text-[#9DB1CC]',
+                      },
+                    ].map((stat, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 + i * 0.1, type: 'spring', stiffness: 200, damping: 18 }}
+                        className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-border/50 dark:border-border/30 bg-white/60 dark:bg-gray-900/40 backdrop-blur-sm w-full sm:w-auto sm:min-w-[140px]"
+                      >
+                        <div className={`w-2 h-2 rounded-full ${stat.dotClass} shrink-0`} />
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{stat.label}</span>
+                          <span className={`text-sm sm:text-base font-bold tabular-nums ${stat.iconColor}`}>
+                            {fmtNum(stat.value)}
+                          </span>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )
+        })()}
+
         {/* ── Section A: Import Hari Ini (Hero) ── */}
         {claimTotal > 0 && !claimsLoading && (
           <motion.div {...fadeIn} transition={{ delay: 0.05 }}>
-            <div className="relative overflow-hidden rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-gradient-to-r from-emerald-50 to-teal-50/60 dark:from-emerald-950/20 dark:to-teal-950/10 p-4">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-emerald-400 to-teal-600 opacity-[0.07] rounded-full -translate-y-8 translate-x-8" />
+            <div className="relative overflow-hidden rounded-xl border border-[#E6BAA3]/60 dark:border-[#B8321E]/40 bg-gradient-to-r from-[#F0D5C5] to-[#B5C7DB]/60 dark:from-[#B8321E]/20 dark:to-[#7E95B3]/10 p-4">
+              {/* Decorative bg circle */}
+              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#E14227] to-[#9DB1CC] opacity-[0.07] rounded-full -translate-y-8 translate-x-8" />
+              {/* Shimmer sweep overlay */}
+              <div className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer-sweep pointer-events-none" />
               <div className="relative flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-[#E14227] to-[#9DB1CC] flex items-center justify-center shadow-lg shadow-[#E14227]/20 shrink-0">
                   <CalendarDays className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">Import Hari Ini</p>
-                  <p className="text-xl sm:text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 tracking-tight">
-                    {fmtRp(claimStats.todaySettle)}
+                  <p className="text-xl sm:text-2xl font-extrabold text-[#B8321E] dark:text-[#F07050] tracking-tight tabular-nums">
+                    <CountUp value={claimStats.todaySettle} format={fmtRp} />
                   </p>
                 </div>
                 <div className="flex items-center gap-3 sm:gap-5 shrink-0">
                   <div className="text-center">
-                    <p className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-400">{fmtNum(claimStats.todayItems)}</p>
+                    <p className="text-base sm:text-lg font-bold text-[#B8321E] dark:text-[#F07050] tabular-nums">
+                      <CountUp value={claimStats.todayItems} format={fmtNum} />
+                    </p>
                     <p className="text-[10px] text-muted-foreground font-medium">item</p>
                   </div>
-                  <div className="w-px h-8 bg-emerald-200/60 dark:bg-emerald-800/40" />
+                  <div className="w-px h-8 bg-[#E6BAA3]/60 dark:bg-[#B8321E]/40" />
                   <div className="text-center">
-                    <p className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-400">{fmtNum(claimStats.todayStruk)}</p>
+                    <p className="text-base sm:text-lg font-bold text-[#B8321E] dark:text-[#F07050] tabular-nums">
+                      <CountUp value={claimStats.todayStruk} format={fmtNum} />
+                    </p>
                     <p className="text-[10px] text-muted-foreground font-medium">struk</p>
                   </div>
                 </div>
@@ -164,9 +318,10 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
 
         {/* ── Section B: Progress Claim Overview ── */}
         {claimSummary && claimTotal > 0 && !claimsLoading && (() => {
+          const totalGlobal = globalClaimedCount + globalUnclaimedCount
+          const claimedPct = totalGlobal > 0 ? Math.round((globalClaimedCount / totalGlobal) * 100) : 0
+          const unclaimedPct = totalGlobal > 0 ? 100 - claimedPct : 0
           const totalSettle = claimSummary.totalSettle ?? 0
-          const claimedPct = totalSettle > 0 ? Math.round(claimStats.claimedSettle / totalSettle * 100) : 0
-          const unclaimedPct = totalSettle > 0 ? 100 - claimedPct : 0
           return (
             <motion.div {...fadeIn} transition={{ delay: 0.1 }}>
               <Card className="border-0 shadow-lg card-hover-glow overflow-hidden">
@@ -175,7 +330,9 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Settle</p>
-                      <p className="text-xl sm:text-2xl font-extrabold tracking-tight">{fmtRp(totalSettle)}</p>
+                      <p className="text-xl sm:text-2xl font-extrabold tracking-tight tabular-nums">
+                        <CountUp value={totalSettle} format={fmtRp} />
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-[10px] sm:text-xs">{fmtNum(claimTotal)} data</Badge>
@@ -189,25 +346,25 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                         initial={{ width: 0 }}
                         animate={{ width: `${claimedPct}%` }}
                         transition={{ duration: 0.8, ease: 'easeOut', delay: 0.2 }}
-                        className="bg-gradient-to-r from-emerald-400 to-emerald-600 h-full rounded-l-full"
+                        className="bg-gradient-to-r from-[#F07050] to-[#E14227] h-full rounded-l-full"
                       />
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${unclaimedPct}%` }}
                         transition={{ duration: 0.8, ease: 'easeOut', delay: 0.4 }}
-                        className="bg-gradient-to-r from-amber-400 to-amber-500 h-full rounded-r-full"
+                        className="bg-gradient-to-r from-[#E6BAA3] to-[#D4956B] h-full rounded-r-full"
                       />
                     </div>
                     <div className="flex justify-between">
                       <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span className="text-[10px] sm:text-xs font-semibold text-emerald-700 dark:text-emerald-400">Claimed {claimedPct}%</span>
-                        <span className="text-[10px] sm:text-xs text-muted-foreground ml-1">({fmtRp(claimStats.claimedSettle)})</span>
+                        <div className="w-2 h-2 rounded-full bg-[#E14227]" />
+                        <span className="text-[10px] sm:text-xs font-semibold text-[#B8321E] dark:text-[#F07050]">Claimed {claimedPct}%</span>
+                        <span className="text-[10px] sm:text-xs text-muted-foreground ml-1">({globalClaimedCount} data)</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] sm:text-xs text-muted-foreground">({fmtRp(claimStats.unclaimedSettle)})</span>
-                        <span className="text-[10px] sm:text-xs font-semibold text-amber-700 dark:text-amber-400">Unclaimed {unclaimedPct}%</span>
-                        <div className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span className="text-[10px] sm:text-xs text-muted-foreground">({globalUnclaimedCount} data)</span>
+                        <span className="text-[10px] sm:text-xs font-semibold text-[#B8321E] dark:text-[#E6BAA3]">Unclaimed {unclaimedPct}%</span>
+                        <div className="w-2 h-2 rounded-full bg-[#E6BAA3]" />
                       </div>
                     </div>
                   </div>
@@ -215,20 +372,22 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                   {/* 4 Mini Stat Cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                     {[
-                      { label: 'Total Struk', value: fmtNum(claimSummary.totalStruk ?? 0), icon: FileSpreadsheet, gradient: 'from-emerald-500 to-teal-600', shadow: 'shadow-emerald-500/20', sub: 'transaksi' },
-                      { label: 'Basket Size', value: (claimSummary.basketSize ?? 0).toFixed(2), icon: ShoppingCart, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20', sub: 'per struk' },
-                      { label: 'Price Point', value: fmtRp(claimSummary.pricePoint ?? 0), icon: Sparkles, gradient: 'from-cyan-500 to-sky-600', shadow: 'shadow-cyan-500/20', sub: 'per item' },
-                      { label: 'Total Qty', value: fmtNum(claimSummary.totalQty ?? 0), icon: Package, gradient: 'from-amber-500 to-orange-600', shadow: 'shadow-amber-500/20', sub: 'jumlah item' },
+                      { label: 'Total Struk', rawValue: claimSummary.totalStruk ?? 0, format: fmtNum, icon: FileSpreadsheet, gradient: 'from-[#E14227] to-[#9DB1CC]', shadow: 'shadow-[#E14227]/20', sub: 'transaksi' },
+                      { label: 'Basket Size', rawValue: claimSummary.basketSize ?? 0, format: (n: number) => n.toFixed(2), icon: ShoppingCart, gradient: 'from-purple-500 to-violet-600', shadow: 'shadow-purple-500/20', sub: 'per struk' },
+                      { label: 'Price Point', rawValue: claimSummary.pricePoint ?? 0, format: fmtRp, icon: Sparkles, gradient: 'from-[#9DB1CC] to-[#7E95B3]', shadow: 'shadow-[#9DB1CC]/20', sub: 'per item' },
+                      { label: 'Total Qty', rawValue: claimSummary.totalQty ?? 0, format: fmtNum, icon: Package, gradient: 'from-[#E6BAA3] to-[#D4956B]', shadow: 'shadow-[#E6BAA3]/20', sub: 'jumlah item' },
                     ].map((s, i) => (
-                      <motion.div key={i} whileHover={{ y: -2, transition: { type: 'spring', stiffness: 300 } }}>
-                        <div className="rounded-xl border border-border/50 bg-gradient-to-br from-muted/40 to-muted/20 dark:from-muted/20 dark:to-muted/5 p-3">
+                      <motion.div key={i} whileHover={{ y: -3, transition: { type: 'spring', stiffness: 300, damping: 20 } }}>
+                        <div className="glass-stat rounded-xl p-3">
                           <div className="flex items-center justify-between mb-1.5">
                             <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">{s.label}</p>
                             <div className={`w-6 h-6 rounded-lg bg-gradient-to-br ${s.gradient} ${s.shadow} shadow flex items-center justify-center`}>
                               <s.icon className="w-3 h-3 text-white" />
                             </div>
                           </div>
-                          <p className="text-sm sm:text-lg font-bold tracking-tight truncate">{s.value}</p>
+                          <p className="text-sm sm:text-lg font-bold tracking-tight truncate tabular-nums">
+                            <CountUp value={s.rawValue} format={s.format} />
+                          </p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">{s.sub}</p>
                         </div>
                       </motion.div>
@@ -248,15 +407,15 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                 {/* Header row */}
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <div className="flex items-center gap-2 min-w-0">
-                    <ShoppingCart className="w-5 h-5 text-emerald-500 shrink-0" />
+                    <ShoppingCart className="w-5 h-5 text-[#E14227] shrink-0" />
                     <CardTitle className="text-base truncate">Laporan Penjualan</CardTitle>
                     <Badge variant="outline" className="text-xs shrink-0">{fmtNum(claimTotal)} data</Badge>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md shadow-emerald-500/20" onClick={() => setShowUploadModal(true)}>
+                    <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-[#E14227] to-[#9DB1CC] hover:from-[#B8321E] hover:to-[#7E95B3] text-white shadow-md shadow-[#E14227]/20" onClick={() => setShowUploadModal(true)}>
                       <UploadCloud className="w-3.5 h-3.5" /> Upload
                     </Button>
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30" onClick={handleExport}>
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-[#E14227] border-[#E6BAA3] hover:bg-[#F0D5C5] dark:text-[#F07050] dark:border-[#B8321E] dark:hover:bg-[#B8321E]/30" onClick={handleExport}>
                       <Download className="w-3.5 h-3.5" /> Export CSV
                     </Button>
                     {isAdmin && batchSelectedIds.size > 0 && (
@@ -306,7 +465,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                       }}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all border ${
                         activeQuickFilter === chip.val
-                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-700 shadow-sm'
+                          ? 'bg-[#F0D5C5] text-[#B8321E] border-[#E6BAA3] dark:bg-[#B8321E]/40 dark:text-[#F07050] dark:border-[#B8321E] shadow-sm'
                           : 'bg-muted/40 text-muted-foreground border-border/50 hover:bg-muted/70 hover:text-foreground'
                       }`}
                     >
@@ -321,17 +480,17 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                   {/* Toggle button */}
                   <button
                     onClick={() => setShowFilterPanel(!showFilterPanel)}
-                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-gray-50 to-gray-100/80 dark:from-gray-900 dark:to-gray-800/80 border border-border/60 transition-all active:scale-[0.98]"
+                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[#F0EAD6] to-[#F0EAD6]/80 dark:from-[#1A1A1B] dark:to-[#1A1A1B]/80 border border-border/60 transition-all active:scale-[0.98]"
                   >
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center">
-                        <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <div className="w-7 h-7 rounded-lg bg-[#F0D5C5] dark:bg-[#B8321E]/50 flex items-center justify-center">
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-[#E14227] dark:text-[#F07050]" />
                       </div>
                       <span className="text-xs font-semibold text-foreground">Filter & Pencarian</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {activeFilterCount > 0 && (
-                        <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#E14227] text-white text-[10px] font-bold flex items-center justify-center">
                           {activeFilterCount}
                         </span>
                       )}
@@ -425,7 +584,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                             {(claimDateFrom || claimDateTo) && (
                               <button
                                 onClick={() => { setClaimDateFrom(''); setClaimDateTo('') }}
-                                className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium px-1 flex items-center gap-1 active:opacity-70"
+                                className="text-[10px] text-[#E14227] dark:text-[#F07050] font-medium px-1 flex items-center gap-1 active:opacity-70"
                               >
                                 <X className="w-2.5 h-2.5" /> Reset tanggal
                               </button>
@@ -540,43 +699,139 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                 </div>
               ) : claimSales.length === 0 ? (
                 claimShowClaimed === 'unclaimed' ? (
-                  <div className="text-center py-12">
+                  <div className="text-center py-12 relative overflow-hidden">
+                    {/* Confetti-like decorative elements */}
+                    <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                      {[
+                        { left: '8%', top: '12%', color: 'bg-[#E14227]', size: 'w-2.5 h-2.5', shape: 'rounded-full', delay: 0 },
+                        { left: '22%', top: '25%', color: 'bg-[#E6BAA3]', size: 'w-2 h-3', shape: 'rounded-sm', delay: 0.3 },
+                        { left: '75%', top: '8%', color: 'bg-purple-400', size: 'w-3 h-2', shape: 'rounded-full', delay: 0.6 },
+                        { left: '88%', top: '30%', color: 'bg-[#9DB1CC]', size: 'w-2 h-2.5', shape: 'rounded-sm', delay: 0.9 },
+                        { left: '15%', top: '70%', color: 'bg-rose-400', size: 'w-2.5 h-2.5', shape: 'rounded-full', delay: 1.2 },
+                        { left: '82%', top: '65%', color: 'bg-orange-400', size: 'w-2 h-2', shape: 'rounded-sm', delay: 0.4 },
+                        { left: '45%', top: '5%', color: 'bg-[#B5C7DB]', size: 'w-2 h-2', shape: 'rounded-full', delay: 0.7 },
+                        { left: '60%', top: '80%', color: 'bg-pink-400', size: 'w-2.5 h-2', shape: 'rounded-sm', delay: 1.0 },
+                      ].map((dot, i) => (
+                        <motion.div
+                          key={i}
+                          className={`absolute ${dot.size} ${dot.color} ${dot.shape}`}
+                          style={{ left: dot.left, top: dot.top }}
+                          animate={{
+                            y: [0, -14, 0],
+                            rotate: [0, 180, 360],
+                            opacity: [0.5, 1, 0.5],
+                          }}
+                          transition={{
+                            duration: 2.5 + i * 0.2,
+                            repeat: Infinity,
+                            ease: 'easeInOut',
+                            delay: dot.delay,
+                          }}
+                        />
+                      ))}
+                    </div>
                     <motion.div
                       animate={{ scale: [1, 1.1, 1] }}
                       transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                      className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-950/40 dark:to-emerald-900/40 flex items-center justify-center"
+                      className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[#F0D5C5] to-[#E6BAA3] dark:from-[#B8321E]/40 dark:to-[#B8321E]/40 flex items-center justify-center relative"
                     >
-                      <PartyPopper className="w-10 h-10 text-emerald-500 dark:text-emerald-400" />
+                      <PartyPopper className="w-10 h-10 text-[#E14227] dark:text-[#F07050]" />
+                      {/* Sparkle accents */}
+                      <motion.span
+                        className="absolute -top-1.5 -right-1.5 text-[#D4956B] text-sm"
+                        animate={{ scale: [0, 1.2, 0], rotate: [0, 90, 180] }}
+                        transition={{ duration: 1.8, repeat: Infinity, delay: 0.5 }}
+                      >&#10022;</motion.span>
+                      <motion.span
+                        className="absolute -bottom-1 -left-1.5 text-[#B5C7DB] text-xs"
+                        animate={{ scale: [0, 1.2, 0], rotate: [0, -90, -180] }}
+                        transition={{ duration: 1.8, repeat: Infinity, delay: 1.2 }}
+                      >&#10022;</motion.span>
                     </motion.div>
-                    <h3 className="text-base font-bold text-foreground mb-1">Semua data sudah di-claim! 🎉</h3>
-                    <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Tidak ada data yang belum di-claim pada filter ini</p>
+                    <h3 className="text-base font-bold text-foreground mb-1">Semua data sudah di-claim!</h3>
+                    <p className="text-sm text-muted-foreground mb-3 max-w-xs mx-auto">Tidak ada data yang belum di-claim pada filter ini</p>
+                    <motion.div
+                      animate={{ scale: [0.95, 1, 0.95] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F0D5C5] dark:bg-[#B8321E]/30 border border-[#E6BAA3]/60 dark:border-[#B8321E]/40"
+                    >
+                      <Trophy className="w-4 h-4 text-[#E14227]" />
+                      <span className="text-xs font-semibold text-[#B8321E] dark:text-[#F07050]">Kerja bagus, semua terselesaikan!</span>
+                    </motion.div>
                   </div>
                 ) : claimShowClaimed === 'claimed' ? (
                   <div className="text-center py-12">
                     <motion.div
                       animate={{ y: [0, -8, 0] }}
                       transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                      className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-950/40 dark:to-orange-950/40 flex items-center justify-center"
+                      className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[#F0D5C5] to-[#E6BAA3] dark:from-[#B8321E]/40 dark:to-[#B8321E]/40 flex items-center justify-center"
                     >
-                      <Clock className="w-10 h-10 text-amber-400 dark:text-amber-600" />
+                      <Clock className="w-10 h-10 text-[#D4956B] dark:text-[#E6BAA3]" />
                     </motion.div>
                     <h3 className="text-base font-bold text-foreground mb-1">Belum Ada Data yang Di-claim</h3>
                     <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Data penjualan yang sudah di-claim akan muncul di sini</p>
                   </div>
                 ) : (
-                <div className="text-center py-12">
+                <div className="text-center py-12 relative overflow-hidden">
+                  {/* Floating decorative icons */}
+                  <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                    <motion.div
+                      className="absolute left-[12%] top-[10%] w-9 h-9 rounded-xl bg-[#F0D5C5] dark:bg-[#B8321E]/50 flex items-center justify-center"
+                      animate={{ y: [0, -10, 0], rotate: [0, 8, 0] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut', delay: 0 }}
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-[#E14227] dark:text-[#F07050]" />
+                    </motion.div>
+                    <motion.div
+                      className="absolute right-[15%] top-[15%] w-8 h-8 rounded-lg bg-[#E6BAA3] dark:bg-[#B8321E]/50 flex items-center justify-center"
+                      animate={{ y: [0, -8, 0], rotate: [0, -6, 0] }}
+                      transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut', delay: 0.4 }}
+                    >
+                      <Upload className="w-3.5 h-3.5 text-[#B8321E] dark:text-[#E6BAA3]" />
+                    </motion.div>
+                    <motion.div
+                      className="absolute left-[8%] bottom-[18%] w-8 h-8 rounded-lg bg-[#B5C7DB] dark:bg-[#7E95B3]/50 flex items-center justify-center"
+                      animate={{ y: [0, -12, 0], rotate: [0, 5, 0] }}
+                      transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut', delay: 0.8 }}
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5 text-[#9DB1CC] dark:text-[#B5C7DB]" />
+                    </motion.div>
+                    <motion.div
+                      className="absolute right-[10%] bottom-[22%] w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-950/50 flex items-center justify-center"
+                      animate={{ y: [0, -9, 0], rotate: [0, -4, 0] }}
+                      transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
+                    >
+                      <BarChart3 className="w-3 h-3 text-purple-500 dark:text-purple-400" />
+                    </motion.div>
+                  </div>
+                  {/* Main illustration */}
                   <motion.div
                     animate={{ y: [0, -8, 0] }}
                     transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                    className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-amber-100 dark:from-emerald-950/40 dark:to-amber-950/40 flex items-center justify-center"
+                    className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[#F0D5C5] to-[#E6BAA3] dark:from-[#B8321E]/40 dark:to-[#B8321E]/40 flex items-center justify-center relative"
                   >
-                    <FileSpreadsheet className="w-10 h-10 text-emerald-400 dark:text-emerald-600" />
+                    <FileSpreadsheet className="w-10 h-10 text-[#E14227] dark:text-[#B8321E]" />
+                    <motion.span
+                      className="absolute -top-1.5 -right-1.5 text-[#D4956B] text-xs"
+                      animate={{ scale: [0, 1.2, 0], rotate: [0, 90, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, delay: 0.3 }}
+                    >&#10022;</motion.span>
+                    <motion.span
+                      className="absolute -bottom-1 -left-1 text-[#F07050] text-[10px]"
+                      animate={{ scale: [0, 1.1, 0], rotate: [0, -60, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, delay: 1 }}
+                    >&#10022;</motion.span>
                   </motion.div>
-                  <h3 className="text-base font-bold text-foreground mb-1">Belum Ada Data Penjualan</h3>
-                  <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">Upload file Excel pertama untuk melihat laporan di sini</p>
-                  <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950/30" onClick={() => setShowUploadModal(true)}>
-                    <Upload className="w-3.5 h-3.5 mr-1.5" />Upload Penjualan
-                  </Button>
+                  <h3 className="text-base font-bold text-foreground mb-1">Mulai dengan upload data penjualan</h3>
+                  <p className="text-sm text-muted-foreground mb-5 max-w-xs mx-auto">Upload file Excel berisi data penjualan, lalu claim ke crew yang bertugas untuk melacak performa tim</p>
+                  <div className="flex items-center justify-center gap-2 flex-wrap">
+                    <Button size="sm" className="bg-gradient-to-r from-[#E14227] to-[#9DB1CC] hover:from-[#B8321E] hover:to-[#7E95B3] text-white shadow-md shadow-[#E14227]/20" onClick={() => setShowUploadModal(true)}>
+                      <Upload className="w-3.5 h-3.5 mr-1.5" />Upload File Excel
+                    </Button>
+                    <Button size="sm" variant="outline" className="border-[#E6BAA3] text-[#E14227] hover:bg-[#F0D5C5] dark:border-[#B8321E] dark:text-[#F07050] dark:hover:bg-[#B8321E]/30" onClick={() => setActiveTab('dashboard')}>
+                      <BarChart3 className="w-3.5 h-3.5 mr-1.5" />Lihat Panduan
+                    </Button>
+                  </div>
                 </div>
                 )
               ) : (
@@ -592,8 +847,12 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                           initial={{ opacity: 0, y: 12 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: Math.min(idx * 0.03, 0.3), duration: 0.3 }}
-                          className={`sale-card shadow-sm border border-border/40 ${isClaimed ? 'sale-claimed' : ''} ${isSelected ? 'sale-selected' : ''}`}
+                          className={`sale-card shadow-sm border border-border/40 ${isClaimed ? 'sale-claimed' : ''} ${isSelected ? 'sale-selected sale-card-animate-select' : ''}`}
                         >
+                          {/* Department left border indicator */}
+                          {sale.dept && (
+                            <div className={`absolute top-4 bottom-4 left-0 w-[3px] rounded-r-full ${getDeptColor(sale.dept)}`} />
+                          )}
                           <div className="p-4">
                             {/* ── Top: Checkbox + Kode + Status ── */}
                             <div className="flex items-center gap-3 mb-3">
@@ -632,27 +891,27 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                               </div>
                               {/* Status pill */}
                               {isClaimed ? (
-                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 shrink-0">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Claimed</span>
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#F0D5C5] dark:bg-[#B8321E]/40 shrink-0">
+                                  <CheckCircle2 className="w-3 h-3 text-[#B2AC88]" />
+                                  <span className="text-[10px] font-semibold text-[#B2AC88] dark:text-[#B2AC88]">Claimed</span>
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 shrink-0">
-                                  <Clock className="w-3 h-3 text-amber-500" />
-                                  <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">Open</span>
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#F0D5C5] dark:bg-[#B8321E]/40 shrink-0">
+                                  <Clock className="w-3 h-3 text-[#E6BAA3]" />
+                                  <span className="text-[10px] font-semibold text-[#E6BAA3] dark:text-[#D4956B]">Open</span>
                                 </div>
                               )}
                             </div>
 
                             {/* ── Hero: Settle Amount ── */}
                             <div className="flex items-end justify-between mb-3">
-                              <p className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-600 to-emerald-500 dark:from-emerald-400 dark:to-emerald-300 bg-clip-text text-transparent">
+                              <p className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-[#E14227] via-[#D4956B] to-[#E6BAA3] dark:from-[#F07050] dark:via-[#B5C7DB] dark:to-[#B5C7DB] bg-clip-text text-transparent">
                                 {fmtRp(sale.settle)}
                               </p>
                               {sale.claimedAt && (
                                 <span className="text-[10px] text-muted-foreground flex items-center gap-1 mb-0.5">
                                   {sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) && (
-                                    <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                                    <div className="w-1.5 h-1.5 bg-[#B2AC88] rounded-full animate-pulse" />
                                   )}
                                   {timeAgo(sale.claimedAt)}
                                 </span>
@@ -690,9 +949,9 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                             <div className={`flex items-center justify-between ${isClaimed && sale.crew ? 'pt-3 border-t border-border/40' : ''}`}>
                               {sale.crew ? (
                                 <div className="flex items-center gap-2">
-                                  <Avatar className="w-7 h-7 ring-2 ring-emerald-200 dark:ring-emerald-800">
+                                  <Avatar className="w-7 h-7 ring-2 ring-[#E6BAA3] dark:ring-[#B8321E]">
                                     <AvatarImage src={sale.crew?.photo || ''} />
-                                    <AvatarFallback className="text-[9px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold">
+                                    <AvatarFallback className="text-[9px] bg-gradient-to-br from-[#F07050] to-[#E14227] text-white font-bold">
                                       {sale.crew?.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
                                     </AvatarFallback>
                                   </Avatar>
@@ -718,7 +977,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                   {sale.crew && (
-                                    <button onClick={() => handleUnclaimSale(sale.id)} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors">
+                                    <button onClick={() => handleUnclaimSale(sale.id)} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#D4956B] hover:bg-[#F0D5C5] dark:hover:bg-[#B8321E]/30 transition-colors">
                                       <X className="w-3 h-3" />
                                     </button>
                                   )}
@@ -739,7 +998,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                           {/* Select column (for unclaimed rows) */}
                           <TableHead className="w-[40px]">
                             <button
-                              className="w-4 h-4 rounded border border-muted-foreground/30 flex items-center justify-center transition-all hover:border-emerald-500"
+                              className="w-4 h-4 rounded border border-muted-foreground/30 flex items-center justify-center transition-all hover:border-[#E14227]"
                               onClick={() => {
                                 const unclaimed = sortedClaimSales.filter(s => !s.crew)
                                 if (selectedSaleIds.size === unclaimed.length && unclaimed.length > 0) {
@@ -753,7 +1012,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                               {(() => {
                                 const unclaimed = sortedClaimSales.filter(s => !s.crew)
                                 return selectedSaleIds.size === unclaimed.length && unclaimed.length > 0 && (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-[#E14227]" />
                                 )
                               })()}
                             </button>
@@ -792,7 +1051,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                               {!sale.crew ? (
                                 <button
                                   className="w-4 h-4 rounded border-2 flex items-center justify-center transition-colors shrink-0 mx-auto"
-                                  style={{ backgroundColor: selectedSaleIds.has(sale.id) ? '#059669' : 'transparent', borderColor: selectedSaleIds.has(sale.id) ? '#059669' : 'rgb(156 163 175)' }}
+                                  style={{ backgroundColor: selectedSaleIds.has(sale.id) ? '#E14227' : 'transparent', borderColor: selectedSaleIds.has(sale.id) ? '#E14227' : 'rgb(156 163 175)' }}
                                   onClick={() => {
                                     const next = new Set(selectedSaleIds)
                                     if (next.has(sale.id)) next.delete(sale.id)
@@ -804,7 +1063,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                                 </button>
                               ) : isAdmin ? (
                                 <button
-                                  className="w-4 h-4 rounded border border-muted-foreground/30 flex items-center justify-center transition-all hover:border-emerald-500 shrink-0 mx-auto"
+                                  className="w-4 h-4 rounded border border-muted-foreground/30 flex items-center justify-center transition-all hover:border-[#E14227] shrink-0 mx-auto"
                                   onClick={() => {
                                     const next = new Set(batchSelectedIds)
                                     if (next.has(sale.id)) next.delete(sale.id)
@@ -813,7 +1072,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                                   }}
                                   aria-label={`Select ${sale.kodeExtend}`}
                                 >
-                                  {batchSelectedIds.has(sale.id) && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                                  {batchSelectedIds.has(sale.id) && <CheckCircle2 className="w-3 h-3 text-[#E14227]" />}
                                 </button>
                               ) : null}
                             </TableCell>
@@ -840,18 +1099,18 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                               ) : <span className="text-muted-foreground">-</span>}
                             </TableCell>
                             <TableCell className="text-xs text-right tabular-nums">{sale.qty}</TableCell>
-                            <TableCell className="text-xs text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">{fmtRp(sale.settle)}</TableCell>
+                            <TableCell className="text-xs text-right font-bold text-[#E14227] dark:text-[#F07050] whitespace-nowrap tabular-nums">{fmtRp(sale.settle)}</TableCell>
                             {/* Crew column */}
                             <TableCell>
                               {sale.crew ? (
                                 <div className="flex items-center gap-2">
                                   <div className="relative">
-                                    <Avatar className="w-6 h-6 ring-1 ring-emerald-200 dark:ring-emerald-800">
+                                    <Avatar className="w-6 h-6 ring-1 ring-[#E6BAA3] dark:ring-[#B8321E]">
                                       <AvatarImage src={sale.crew?.photo || ''} />
-                                      <AvatarFallback className="text-[8px] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold">{(sale.crew?.name || '?')[0]}</AvatarFallback>
+                                      <AvatarFallback className="text-[8px] bg-gradient-to-br from-[#F07050] to-[#E14227] text-white font-bold">{(sale.crew?.name || '?')[0]}</AvatarFallback>
                                     </Avatar>
                                     {sale.claimedAt && (Date.now() - new Date(sale.claimedAt).getTime() < 120000) && (
-                                      <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full border-2 border-background animate-pulse" />
+                                      <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#B2AC88] rounded-full border-2 border-background animate-pulse" />
                                     )}
                                   </div>
                                   <div className="flex flex-col min-w-0">
@@ -863,7 +1122,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                                   {isAdmin && (
                                     <button
                                       onClick={() => handleUnclaimSale(sale.id)}
-                                      className="ml-auto shrink-0 p-1 rounded text-muted-foreground hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+                                      className="ml-auto shrink-0 p-1 rounded text-muted-foreground hover:text-[#D4956B] hover:bg-[#F0D5C5] dark:hover:bg-[#B8321E]/30 transition-colors"
                                       title="Unclaim"
                                     >
                                       <X className="w-3 h-3" />
@@ -919,6 +1178,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                               key={p}
                               onClick={() => fetchClaims(p)}
                               className={`pagination-btn ${p === claimPage ? 'active' : 'text-muted-foreground border border-transparent'}`}
+                              style={p === claimPage ? { backgroundColor: '#E14227', color: 'white', borderColor: '#E14227' } : undefined}
                             >
                               {p}
                             </button>
@@ -939,6 +1199,67 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
 
         {/* ── Mobile Selected Items Bar removed — merged into Floating Claim Bar below ── */}
       </motion.div>
+
+      {/* ── Quick Actions Floating Bar ── */}
+      <AnimatePresence>
+        {selectedSaleIds.size > 0 && selectedClaimCrewId && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="fixed bottom-16 sm:bottom-5 left-0 right-0 z-40 px-3 sm:px-6"
+          >
+            <div className="max-w-lg mx-auto glass-card animate-bar-glow rounded-2xl p-3 sm:p-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                {/* Selected count + total */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <div className="w-5 h-5 rounded-md bg-gradient-to-br from-[#E14227] to-[#9DB1CC] flex items-center justify-center">
+                      <span className="text-[9px] font-bold text-white">{selectedSaleIds.size}</span>
+                    </div>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground font-medium">item dipilih</p>
+                  </div>
+                  <p className="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-[#E14227] to-[#D4956B] dark:from-[#F07050] dark:to-[#B5C7DB] bg-clip-text text-transparent tabular-nums">
+                    {fmtRp(selectedItemsTotal)}
+                  </p>
+                </div>
+
+                {/* Selected crew info */}
+                {selectedClaimCrew && (
+                  <div className="flex items-center gap-2 shrink-0 pl-3 border-l border-border/50">
+                    <Avatar className="w-8 h-8 ring-2 ring-[#E6BAA3] dark:ring-[#B8321E] shadow-sm">
+                      <AvatarImage src={selectedClaimCrew.photo || ''} />
+                      <AvatarFallback className="text-[10px] bg-gradient-to-br from-[#F07050] to-[#E14227] text-white font-bold">
+                        {selectedClaimCrew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-xs font-semibold text-foreground truncate max-w-[80px] sm:max-w-[120px] hidden sm:block">
+                      {selectedClaimCrew.name}
+                    </span>
+                  </div>
+                )}
+
+                {/* Claim Sekarang button */}
+                <Button
+                  onClick={() => handleClaimSales()}
+                  disabled={claiming}
+                  className="shrink-0 bg-gradient-to-r from-[#E14227] to-[#9DB1CC] hover:from-[#B8321E] hover:to-[#7E95B3] text-white shadow-lg shadow-[#E14227]/25 px-4 sm:px-5 h-10 sm:h-11 text-xs sm:text-sm font-bold gap-1.5 transition-all active:scale-95"
+                >
+                  {claiming ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4" />
+                      <span>Claim Sekarang</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </TabsContent>
   )
 })

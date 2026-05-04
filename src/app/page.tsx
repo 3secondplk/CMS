@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
@@ -13,7 +14,7 @@ import {
   LayoutDashboard, Upload, Settings, Layers, Sun, Moon, Shield, LogOut,
   ChevronUp, Users, Crown, Target, Calendar, UserCheck, CheckCircle2,
   DollarSign, ShoppingCart, Search, X, Sparkles, Heart,
-  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock,
+  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard,
 } from 'lucide-react'
 import { fmtRp, fmtNum, getWIBDate, getWIBToday, monthNames, dayNames, currentYear, getWeekRange, getMonthRange, safeFetch } from '@/lib/cms-utils'
 import type { CrewStat, GroupAchievement, DashboardData, Crew, Group, ClaimSale, GroupDetailData, DeleteConfirmState } from '@/lib/cms-types'
@@ -25,13 +26,25 @@ import DeleteConfirmDialog from '@/components/modals/DeleteConfirmDialog'
 import EditSaleDialog from '@/components/modals/EditSaleDialog'
 import CrewDetailPanel from '@/components/modals/CrewDetailPanel'
 import GroupDetailModal from '@/components/modals/GroupDetailModal'
+import KeyboardShortcutsHelp from '@/components/KeyboardShortcutsHelp'
+import NotificationCenter from '@/components/NotificationCenter'
+import GamifiedLoader from '@/components/ui/GamifiedLoader'
 
 // ─── Main App ────────────────────────────────────────────
 export default function Home() {
   const { theme, setTheme, resolvedTheme } = useTheme()
+
+  // Theme cycling: light → dark → system → light
+  const cycleTheme = useCallback(() => {
+    const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light'
+    setTheme(next)
+    const label = next === 'light' ? '☀️ Light Mode' : next === 'dark' ? '🌙 Dark Mode' : '🖥️ System (Auto)'
+    toast.success(label, { description: next === 'system' ? 'Theme follows your device setting' : `Switched to ${next} mode`, duration: 2000 })
+  }, [theme, setTheme])
   const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState('dashboard')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [adminName, setAdminName] = useState('')
 
   // Prevent hydration mismatch for theme toggle
   useEffect(() => { setMounted(true) }, [])
@@ -66,6 +79,7 @@ export default function Home() {
   const [claimTotalPages, setClaimTotalPages] = useState(1)
   const [claimPage, setClaimPage] = useState(1)
   const [claimSearch, setClaimSearch] = useState('')
+  const deferredClaimSearch = useDeferredValue(claimSearch)
   const todayStr = getWIBToday()
 
   // BUGFIX: Restore filter state from localStorage (persists across reload)
@@ -140,6 +154,54 @@ export default function Home() {
   const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set())
   const [batchDeleting, setBatchDeleting] = useState(false)
 
+  // Keyboard shortcuts help panel
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  // ─── Notification Polling ──────────────────────────────
+  const [notificationCount, setNotificationCount] = useState(0)
+  const prevUnclaimedRef = useRef(0)
+  const [bellSwingTrigger, setBellSwingTrigger] = useState(false)
+
+  // Poll unclaimed count every 30s when NOT on claims tab
+  useEffect(() => {
+    if (activeTab === 'claims') return // claims tab refreshes on its own
+
+    // Initial sync from dashboard state if available
+    if (dashboard?.unclaimedCount !== undefined) {
+      setNotificationCount(dashboard.unclaimedCount)
+      prevUnclaimedRef.current = dashboard.unclaimedCount
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const r = await safeFetch('/api/dashboard?period=today')
+        const d = await r.json()
+        if (d.error) return
+        const count = d.unclaimedCount || 0
+        setNotificationCount(count)
+
+        // Detect increase — show toast once per increase
+        if (count > prevUnclaimedRef.current && prevUnclaimedRef.current >= 0) {
+          const diff = count - prevUnclaimedRef.current
+          toast.info(`🆕 ${diff} data penjualan baru belum di-claim`, { duration: 4000 })
+          setBellSwingTrigger(prev => !prev) // toggle to re-trigger animation
+        }
+        prevUnclaimedRef.current = count
+      } catch {
+        /* silent — polling should never disrupt UX */
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [activeTab, dashboard?.unclaimedCount])
+
+  // Keep notificationCount in sync with dashboard data
+  useEffect(() => {
+    if (dashboard?.unclaimedCount !== undefined) {
+      setNotificationCount(dashboard.unclaimedCount)
+    }
+  }, [dashboard?.unclaimedCount])
+
   // Check auth on mount
   useEffect(() => {
     fetch('/api/auth').then(r => r.json()).then(d => {
@@ -182,7 +244,7 @@ export default function Home() {
     setClaimsLoading(true)
     try {
       const params = new URLSearchParams({ page: String(page), limit: '50' })
-      if (claimSearch) params.set('search', claimSearch)
+      if (deferredClaimSearch) params.set('search', deferredClaimSearch)
       if (claimDateFrom) params.set('dateFrom', claimDateFrom)
       if (claimDateTo) params.set('dateTo', claimDateTo)
       if (claimFilterProgram) params.set('program', claimFilterProgram)
@@ -197,7 +259,7 @@ export default function Home() {
       if (d.summary) setClaimSummary(d.summary)
     } catch { /* silent */ }
     finally { setClaimsLoading(false) }
-  }, [claimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed])
+  }, [deferredClaimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed])
 
   // Fetch claims only when claims tab is active (PERF: lazy load)
   const claimsInitialLoadedRef = useRef(false)
@@ -256,14 +318,111 @@ export default function Home() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
+  // ─── Keyboard Shortcuts ────────────────────────────────
+  const handleExportRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.userAgent)
+
+    function isInputFocused(e: KeyboardEvent): boolean {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+      if ((e.target as HTMLElement)?.isContentEditable) return true
+      return false
+    }
+
+    function isDialogOpen(): boolean {
+      return !!(showUploadModal || editSaleDialog || deleteConfirm || showAddCrew || showAddGroup || showShortcuts || selectedCrewDetail || crewPhotoPreview || selectedGroupDetail)
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // ── Escape: close any open dialog + deselect claims ──
+      if (e.key === 'Escape') {
+        // Let the Dialog component handle its own Escape first
+        // Close shortcuts help first
+        if (showShortcuts) { setShowShortcuts(false); e.preventDefault(); return }
+        // Close other dialogs
+        if (showUploadModal) { setShowUploadModal(false); e.preventDefault(); return }
+        if (editSaleDialog) { setEditSaleDialog(null); e.preventDefault(); return }
+        if (deleteConfirm) { setDeleteConfirm(null); e.preventDefault(); return }
+        if (showAddCrew) { setShowAddCrew(false); return }
+        if (showAddGroup) { setShowAddGroup(false); return }
+        if (selectedCrewDetail) { setSelectedCrewDetail(null); return }
+        if (crewPhotoPreview) { setCrewPhotoPreview(null); return }
+        if (selectedGroupDetail) { setSelectedGroupDetail(null); return }
+        if (showFilterPanel) { setShowFilterPanel(false); return }
+        // Deselect all claims
+        if (selectedSaleIds.size > 0) { setSelectedSaleIds(new Set()); return }
+        return
+      }
+
+      // Don't process non-modifier shortcuts when input is focused
+      const inputFocused = isInputFocused(e)
+      const dialogOpen = isDialogOpen()
+
+      // ── ? : Toggle shortcuts help (only when no input focused) ──
+      if (e.key === '?' && !inputFocused && !dialogOpen) {
+        e.preventDefault()
+        setShowShortcuts(prev => !prev)
+        return
+      }
+
+      // ── Ctrl/Cmd + K : Focus search input ──
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        // Find the search input for the current tab
+        if (activeTab === 'claims') {
+          const input = document.querySelector<HTMLInputElement>('input[placeholder="Cari kode, brand, dept, crew..."]')
+          input?.focus()
+        } else if (activeTab === 'management') {
+          const input = document.querySelector<HTMLInputElement>('input[placeholder="Cari crew, ID, atau group..."]')
+          input?.focus()
+        }
+        return
+      }
+
+      // ── Ctrl/Cmd + U : Open upload dialog (claims tab) ──
+      if ((e.metaKey || e.ctrlKey) && e.key === 'u') {
+        e.preventDefault()
+        if (activeTab === 'claims') setShowUploadModal(true)
+        return
+      }
+
+      // ── Ctrl/Cmd + E : Export CSV (claims tab) ──
+      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        e.preventDefault()
+        if (activeTab === 'claims') handleExportRef.current()
+        return
+      }
+
+      // ── Navigation and theme shortcuts: only when no input/dialog focused ──
+      if (inputFocused || dialogOpen) return
+
+      // ── 1, 2, 3 : Switch tabs ──
+      if (e.key === '1') { setActiveTab('dashboard'); return }
+      if (e.key === '2') { setActiveTab('claims'); return }
+      if (e.key === '3') { setActiveTab('management'); return }
+
+      // ── T : Toggle theme ──
+      if (e.key === 't' || e.key === 'T') {
+        cycleTheme()
+        return
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeTab, showUploadModal, editSaleDialog, deleteConfirm, showAddCrew, showAddGroup, showShortcuts, selectedCrewDetail, crewPhotoPreview, selectedGroupDetail, selectedSaleIds, showFilterPanel, cycleTheme])
+
   // ─── Auth handlers ────────────────────────────────────
   const handleLogin = async () => {
     if (!loginForm.username || !loginForm.password) { toast.error('Isi username dan password'); return }
     try {
       const r = await safeFetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
       const d = await r.json()
-      if (d.error) { toast.error(`${d.error} (HTTP ${r.status})${d.debug ? ' | adminCount: ' + d.debug.adminCount : ''}`); return }
+      if (d.error) { toast.error(d.error); return }
       setIsAdmin(true)
+      setAdminName(d.admin.name)
       toast.success(`Selamat datang, ${d.admin.name}!`)
     } catch (e: any) { toast.error('Login gagal: ' + (e.message || 'Network error')) }
   }
@@ -291,7 +450,7 @@ export default function Home() {
     const fd = new FormData()
     fd.append('file', file)
     try {
-      const r = await safeFetch('/api/claims', { method: 'POST', body: fd })
+      const r = await safeFetch('/api/claims', { method: 'POST', body: fd }, 120000)
       const d = await r.json()
       clearInterval(progressInterval)
       setUploadProgress(100)
@@ -312,9 +471,9 @@ export default function Home() {
       fetchDashboard()
       fetchPrograms()
     } catch {
-      clearInterval(progressInterval)
       toast.error('Gagal memproses file')
     } finally {
+      clearInterval(progressInterval)
       setUploading(false)
     }
   }
@@ -438,8 +597,11 @@ export default function Home() {
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
       toast.success(d.message)
-      batchSelectedIds.delete(id)
-      setBatchSelectedIds(new Set(batchSelectedIds))
+      setBatchSelectedIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
       fetchClaims(claimPage)
       fetchDashboard()
     } catch { toast.error('Gagal menghapus data') }
@@ -591,11 +753,12 @@ export default function Home() {
   }, [claimSearch, claimFilterProgram, claimFilterCrew, activeQuickFilter, claimShowClaimed])
 
   // ─── Management handlers ──────────────────────────────
-  const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string }) => {
+  const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => {
     try {
       const url = editCrew ? '/api/crews' : '/api/crews'
       const method = editCrew ? 'PUT' : 'POST'
-      const body = editCrew ? { id: editCrew.id, ...data } : data
+      const { removePhoto, ...rest } = data
+      const body = editCrew ? { id: editCrew.id, ...rest, photo: removePhoto ? null : rest.photo } : rest
       const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
@@ -670,6 +833,7 @@ export default function Home() {
       toast.success('Data berhasil diekspor ke CSV')
     } catch { toast.error('Gagal mengekspor data') }
   }
+  handleExportRef.current = handleExport
 
   // Delete confirm handler (centralized)
   const handleConfirmDelete = async () => {
@@ -685,6 +849,18 @@ export default function Home() {
   const wibDate = getWIBDate()
   const dateStr = `${dayNames[wibDate.getDay()]}, ${wibDate.getDate()} ${monthNames[wibDate.getMonth()]} ${wibDate.getFullYear()}`
 
+  // ─── Greeting Config (WIB time-of-day) ─────────────────
+  const greetingConfig = useMemo(() => {
+    const hour = wibDate.getHours()
+    if (hour >= 5 && hour <= 11) return { text: 'Selamat Pagi', icon: Sun, gradient: 'from-[#E14227] via-[#D4956B] to-[#E6BAA3]', bgGradient: 'from-[#F0EAD6]/80 via-[#E6DDD0]/60 to-[#E6BAA3]/40 dark:from-[#E14227]/10 dark:via-[#D4956B]/5 dark:to-[#E6BAA3]/5', iconColor: 'text-[#E14227]', textColor: 'from-[#B8321E] to-[#E14227] dark:from-[#F07050] dark:to-[#E14227]' }
+    if (hour >= 12 && hour <= 14) return { text: 'Selamat Siang', icon: Sun, gradient: 'from-[#D4956B] via-[#E14227] to-[#E6BAA3]', bgGradient: 'from-[#E6DDD0]/80 via-[#F0EAD6]/60 to-[#E6BAA3]/40 dark:from-[#D4956B]/10 dark:via-[#E14227]/5 dark:to-[#E6BAA3]/5', iconColor: 'text-[#D4956B]', textColor: 'from-[#B8321E] to-[#D4956B] dark:from-[#F07050] dark:to-[#D4956B]' }
+    if (hour >= 15 && hour <= 17) return { text: 'Selamat Sore', icon: Sunset, gradient: 'from-[#9DB1CC] via-[#B2AC88] to-[#E6BAA3]', bgGradient: 'from-[#E6DDD0]/80 via-[#D5E0EB]/60 to-[#E6BAA3]/40 dark:from-[#9DB1CC]/10 dark:via-[#B2AC88]/5 dark:to-[#E6BAA3]/5', iconColor: 'text-[#9DB1CC]', textColor: 'from-[#7E95B3] to-[#9DB1CC] dark:from-[#B5C7DB] dark:to-[#9DB1CC]' }
+    return { text: 'Selamat Malam', icon: Moon, gradient: 'from-[#1A1A1B] via-[#3A3632] to-[#5A524C]', bgGradient: 'from-[#E6DDD0]/40 via-[#1A1A1B]/60 to-[#1A1A1B]/40 dark:from-[#1A1A1B]/30 dark:via-[#3A3632]/20 dark:to-[#1A1A1B]/10', iconColor: 'text-[#E6BAA3]', textColor: 'from-[#E6BAA3] to-[#D4956B] dark:from-[#E6BAA3] dark:to-[#D4956B]' }
+  }, [wibDate])
+
+  // Check if dashboard is empty (no crew stats and no sales data)
+  const isDashboardEmpty = dashboard && !dashLoading && dashboard.crewStats.length === 0 && dashboard.topCrews.length === 0
+
   // ─── RENDER ────────────────────────────────────────────
   const navItems = [
     { val: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', desc: 'Ringkasan & statistik' },
@@ -693,7 +869,11 @@ export default function Home() {
   ]
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-50 via-emerald-50/20 to-teal-50/10 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 relative">
+    <>
+    {/* ═══ GAMIFIED LOADING PAGE ═══ */}
+    <GamifiedLoader isLoading={dashLoading && !dashboard} />
+
+    <div className="min-h-screen flex flex-col bg-[#F0EAD6] dark:bg-[#1A1A1B] relative">
       {/* Dot pattern overlay */}
       <div className="absolute inset-0 bg-dot-pattern pointer-events-none" aria-hidden="true" />
       <div className="relative z-10 flex flex-col min-h-screen">
@@ -702,19 +882,26 @@ export default function Home() {
       <header className="sticky top-0 z-50">
         <div className="relative">
           {/* Top bar */}
-          <div className="bg-white/80 dark:bg-gray-950/80 backdrop-blur-2xl border-b border-border/50">
+          <div className="bg-white/70 dark:bg-[#1A1A1B]/80 backdrop-blur-2xl border-b border-border/50">
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
               <div className="flex items-center justify-between h-14 sm:h-16">
-                {/* Logo */}
+                {/* Logo with Online Status & Loading Pulse Ring */}
                 <div className="flex items-center gap-2.5 sm:gap-3">
                   <div className="relative">
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                      <Layers className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-white" />
+                    {/* Activity Pulse Ring — visible when data is loading */}
+                    {dashLoading && (
+                      <div className="absolute -inset-1.5 rounded-2xl animate-logo-pulse-ring opacity-60" />
+                    )}
+                    <img src="/logo.png" alt="3SC CMS" className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover" />
+                    {/* Online Status Indicator */}
+                    <div className="absolute -top-0.5 -right-0.5 flex items-center justify-center">
+                      <span className="absolute w-2.5 h-2.5 bg-[#B2AC88] rounded-full animate-subtle-pulse" />
+                      <span className="absolute w-2.5 h-2.5 bg-[#B2AC88] rounded-full animate-online-ring" />
+                      <span className="relative w-2 h-2 bg-[#B2AC88] rounded-full ring-2 ring-white dark:ring-[#1A1A1B]" />
                     </div>
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full animate-subtle-pulse ring-2 ring-white dark:ring-gray-950" />
                   </div>
                   <div className="hidden xs:block">
-                    <h1 className="text-sm sm:text-base font-extrabold tracking-tight bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 dark:from-emerald-400 dark:via-emerald-300 dark:to-teal-400 bg-clip-text text-transparent leading-tight">
+                    <h1 className="text-sm sm:text-base font-extrabold tracking-tight bg-gradient-to-r from-[#E14227] via-[#D4956B] to-[#9DB1CC] dark:from-[#E14227] dark:via-[#D4956B] dark:to-[#9DB1CC] bg-clip-text text-transparent leading-tight">
                       CMS Crew
                     </h1>
                     <p className="text-[9px] sm:text-[10px] text-muted-foreground font-medium -mt-0.5 tracking-wide">
@@ -731,14 +918,14 @@ export default function Home() {
                       onClick={() => setActiveTab(t.val)}
                       className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                         activeTab === t.val
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                          ? 'bg-[#E14227]/10 dark:bg-[#E14227]/20 text-[#E14227] dark:text-[#E14227] shadow-sm'
                           : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                       }`}
                     >
                       <t.icon className="w-4 h-4" />
                       {t.label}
                       {activeTab === t.val && (
-                        <motion.div layoutId="nav-active" className="absolute inset-0 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 -z-10" transition={{ type: 'spring', bounce: 0.15, duration: 0.5 }} />
+                        <motion.div layoutId="nav-active" className="absolute inset-0 rounded-xl bg-[#E14227]/10 dark:bg-[#E14227]/20 -z-10" transition={{ type: 'spring', bounce: 0.15, duration: 0.5 }} />
                       )}
                     </button>
                   ))}
@@ -746,18 +933,37 @@ export default function Home() {
 
                 {/* Right actions */}
                 <div className="flex items-center gap-1.5 sm:gap-2">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-muted" onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-                    {mounted ? (
-                      <motion.span key={resolvedTheme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.2 }}>
-                        {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                      </motion.span>
-                    ) : (
-                      <div className="w-4 h-4" />
-                    )}
-                  </Button>
+                  {/* Notification Center */}
+                  <NotificationCenter notificationCount={notificationCount} bellSwingTrigger={bellSwingTrigger} />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-muted" onClick={() => setShowShortcuts(true)} aria-label="Keyboard shortcuts">
+                        <Keyboard className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" sideOffset={6}>
+                      <span className="flex items-center gap-1">Keyboard shortcuts <kbd className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-muted border border-border text-[10px] font-mono font-medium leading-none">?</kbd></span>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-muted" onClick={cycleTheme}>
+                        {mounted ? (
+                          <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.2 }}>
+                            {theme === 'system' ? <Monitor className="w-4 h-4" /> : resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                          </motion.span>
+                        ) : (
+                          <div className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" sideOffset={6}>
+                      {mounted ? (theme === 'light' ? 'Light Mode' : theme === 'dark' ? 'Dark Mode' : `System (${resolvedTheme})`) : '...'}
+                    </TooltipContent>
+                  </Tooltip>
                   {isAdmin && (
                     <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="hidden sm:flex items-center gap-1.5">
-                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800 text-[10px] px-2 py-0.5">
+                      <Badge variant="outline" className="bg-[#E14227]/10 text-[#E14227] border-[#E14227]/30 dark:bg-[#E14227]/20 dark:text-[#E14227] dark:border-[#E14227]/40 text-[10px] px-2 py-0.5">
                         <Shield className="w-3 h-3 mr-1" /> Admin
                       </Badge>
                       <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Logout">
@@ -772,14 +978,14 @@ export default function Home() {
 
           {/* Quick Stats Ribbon (desktop only) */}
           {dashboard && !dashLoading && (
-            <div className="hidden sm:block border-b border-border/30 bg-gradient-to-r from-white/60 via-emerald-50/20 to-amber-50/10 dark:from-gray-950/60 dark:via-gray-900/40 dark:to-gray-950/60">
+            <div className="hidden sm:block border-b border-border/30 bg-gradient-to-r from-white/60 via-[#F0EAD6]/20 to-[#E6BAA3]/10 dark:from-[#1A1A1B]/60 dark:via-[#1A1A1B]/40 dark:to-[#1A1A1B]/60">
               <div className="max-w-7xl mx-auto px-6 lg:px-8">
                 <div className="flex items-center gap-2 py-2 overflow-x-auto scrollbar-none">
                   {[
-                    { icon: Users, label: 'Crew', value: String(dashboard.crewStats.length), color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-800/40' },
+                    { icon: Users, label: 'Crew', value: String(dashboard.crewStats.length), color: 'text-[#E14227] dark:text-[#E14227] bg-[#E14227]/10 dark:bg-[#E14227]/20 border-[#E14227]/20 dark:border-[#E14227]/30' },
                     { icon: Target, label: 'Groups', value: String(dashboard.groupAchievements.length), color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200/60 dark:border-amber-800/40' },
                     { icon: Crown, label: 'Best', value: dashboard.topCrews[0]?.name?.split(' ')[0] || '-', color: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 border-purple-200/60 dark:border-purple-800/40' },
-                    { icon: Calendar, label: dashPeriod === 'today' ? 'Today' : dashPeriod === 'week' ? 'Week' : 'Month', value: dashPeriod === 'today' ? fmtRp(dashboard.totals.today) : dashPeriod === 'week' ? fmtRp(dashboard.totals.week) : fmtRp(dashboard.totals.month), color: 'text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/40 border-cyan-200/60 dark:border-cyan-800/40' },
+                    { icon: Calendar, label: dashPeriod === 'today' ? 'Today' : dashPeriod === 'week' ? 'Week' : 'Month', value: dashPeriod === 'today' ? fmtRp(dashboard.totals.today) : dashPeriod === 'week' ? fmtRp(dashboard.totals.week) : fmtRp(dashboard.totals.month), color: 'text-[#9DB1CC] dark:text-[#9DB1CC] bg-[#9DB1CC]/10 dark:bg-[#9DB1CC]/20 border-[#9DB1CC]/20 dark:border-[#9DB1CC]/30' },
                   ].map((stat, i) => (
                     <div key={i} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium whitespace-nowrap shrink-0 ${stat.color}`}>
                       <stat.icon className="w-3 h-3" />
@@ -794,12 +1000,144 @@ export default function Home() {
         </div>
       </header>
 
+      {/* ═══ GREETING BANNER ═══ */}
+      <AnimatePresence>
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 pb-2"
+        >
+          <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${greetingConfig.bgGradient} border border-border/40`}>
+            {/* Decorative gradient overlay */}
+            <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl ${greetingConfig.gradient} opacity-10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl`} />
+            <div className="relative flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3.5">
+              <div className={`flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br ${greetingConfig.gradient} shadow-lg`}>
+                <greetingConfig.icon className="w-5 h-5 sm:w-5.5 sm:h-5.5 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className={`text-sm sm:text-base font-bold bg-gradient-to-r ${greetingConfig.textColor} bg-clip-text text-transparent`}>
+                  {greetingConfig.text}
+                  {adminName && (
+                    <span className="ml-1.5 font-semibold text-foreground/80 dark:text-foreground/60">
+                      — {adminName}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">
+                  {dateStr} · {dashboard && !dashLoading ? `${dashboard.crewStats.length} crew aktif` : 'Memuat data...'}
+                </p>
+              </div>
+              {!isAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 text-xs h-8 bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm border-border/60 hover:bg-white dark:hover:bg-gray-900"
+                  onClick={() => setActiveTab('management')}
+                >
+                  <Shield className="w-3.5 h-3.5 mr-1.5" />
+                  Login
+                </Button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      </AnimatePresence>
+
       {/* ─── Main Content ────────────────────────────── */}
-      <div className="flex-1">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.15, ease: 'easeOut' }}
+        className="flex-1"
+      >
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
             {/* ─── Dashboard Tab ────────────────────────── */}
+            {/* ── Welcome Section (empty state) ── */}
+            {activeTab === 'dashboard' && isDashboardEmpty && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="py-8 sm:py-12"
+              >
+                <div className="max-w-md mx-auto text-center">
+                  {/* Large illustration */}
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.6, delay: 0.3, type: 'spring' }}
+                    className="relative mx-auto w-24 h-24 sm:w-28 sm:h-28 mb-6"
+                  >
+                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#E6BAA3] to-[#F0D5C5] dark:from-[#E14227]/20 dark:to-[#9DB1CC]/20 rotate-6" />
+                    <div className="relative w-full h-full rounded-3xl bg-gradient-to-br from-[#E14227] to-[#D4956B] flex items-center justify-center shadow-xl shadow-[#E14227]/20">
+                      <Layers className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
+                    </div>
+                    {/* Decorative floating elements */}
+                    <motion.div
+                      animate={{ y: [-4, 4, -4] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                      className="absolute -top-3 -right-3 w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shadow-md"
+                    >
+                      <Sun className="w-4 h-4 text-amber-500" />
+                    </motion.div>
+                    <motion.div
+                      animate={{ y: [3, -3, 3] }}
+                      transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+                      className="absolute -bottom-2 -left-3 w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center shadow-md"
+                    >
+                      <Users className="w-3.5 h-3.5 text-purple-500" />
+                    </motion.div>
+                    <motion.div
+                      animate={{ y: [-2, 5, -2] }}
+                      transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+                      className="absolute top-1 -left-4 w-6 h-6 rounded-md bg-[#D5E0EB] dark:bg-[#9DB1CC]/20 flex items-center justify-center shadow-md"
+                    >
+                      <Target className="w-3 h-3 text-[#9DB1CC]" />
+                    </motion.div>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.5 }}
+                  >
+                    <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">
+                      Selamat Datang di CMS Crew!
+                    </h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-sm mx-auto">
+                      Mulai kelola crew dan tracking penjualan. Upload data penjualan atau buat crew pertamamu untuk memulai.
+                    </p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.65 }}
+                    className="flex flex-col sm:flex-row items-center justify-center gap-3"
+                  >
+                    <Button
+                      onClick={() => { setShowUploadModal(true); setActiveTab('claims') }}
+                      className="w-full sm:w-auto bg-gradient-to-r from-[#E14227] to-[#B8321E] hover:from-[#B8321E] hover:to-[#E14227] text-white shadow-lg shadow-[#E14227]/25"
+                    >
+                      <FileUp className="w-4 h-4 mr-2" />
+                      Upload Data
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => { setActiveTab('management') }}
+                      className="w-full sm:w-auto border-[#E14227]/30 dark:border-[#E14227]/40 text-[#E14227] dark:text-[#E14227] hover:bg-[#E14227]/10 dark:hover:bg-[#E14227]/20"
+                    >
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Buat Crew
+                    </Button>
+                  </motion.div>
+                </div>
+              </motion.div>
+            )}
+
             <DashboardTab
               dashboard={dashboard}
               dashPeriod={dashPeriod}
@@ -849,6 +1187,8 @@ export default function Home() {
               selectedClaimCrew={selectedClaimCrew}
               claimCrewResults={claimCrewResults}
               claimStats={claimStats}
+              globalClaimedCount={dashboard?.claimedCount || 0}
+              globalUnclaimedCount={dashboard?.unclaimedCount || 0}
               activeQuickFilter={activeQuickFilter}
               activeFilterCount={activeFilterCount}
               uploading={uploading}
@@ -912,10 +1252,21 @@ export default function Home() {
               handleSaveGroup={handleSaveGroup}
               handleDeleteGroup={handleDeleteGroup}
               setDeleteConfirm={setDeleteConfirm}
+              onImportSuccess={fetchManagement}
+              adminName={adminName}
+              onPasswordChanged={() => {
+                setIsAdmin(false)
+                setAdminName('')
+                toast.info('Password berhasil diubah, silakan login kembali')
+              }}
+              onDataCleared={() => {
+                fetchManagement()
+                fetchDashboard()
+              }}
             />
           </Tabs>
         </div>
-      </div>
+      </motion.div>
 
       {/* ─── Crew Detail Slide Panel ──────────────────── */}
       <CrewDetailPanel
@@ -952,9 +1303,15 @@ export default function Home() {
         crews={crews}
       />
 
-      <footer className="mt-auto border-t border-border/50 bg-white/60 dark:bg-gray-950/60 backdrop-blur-xl pb-20 md:pb-0">
+      {/* ─── Keyboard Shortcuts Help Panel ─── */}
+      <KeyboardShortcutsHelp
+        open={showShortcuts}
+        onOpenChange={setShowShortcuts}
+      />
+
+      <footer className="mt-auto border-t border-border/50 bg-[#1A1A1B] text-white backdrop-blur-xl pb-20 md:pb-0">
         {/* Top accent line */}
-        <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
+        <div className="h-px bg-gradient-to-r from-transparent via-[#E14227]/40 to-transparent" />
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           {/* Main footer content */}
           <div className="py-6 sm:py-8">
@@ -962,30 +1319,28 @@ export default function Home() {
               {/* Brand */}
               <div className="col-span-2 sm:col-span-1 space-y-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 flex items-center justify-center shadow-md shadow-emerald-500/15">
-                    <Layers className="w-4 h-4 text-white" />
-                  </div>
+                  <img src="/logo.png" alt="3SC CMS" className="w-8 h-8 rounded-xl object-cover shadow-md" />
                   <div>
-                    <p className="text-sm font-extrabold bg-gradient-to-r from-emerald-600 to-teal-700 dark:from-emerald-400 dark:to-teal-400 bg-clip-text text-transparent">CMS Crew</p>
-                    <p className="text-[9px] text-muted-foreground font-medium">Management System</p>
+                    <p className="text-sm font-extrabold bg-gradient-to-r from-[#E14227] to-[#9DB1CC] dark:from-[#E14227] dark:to-[#9DB1CC] bg-clip-text text-transparent">CMS Crew</p>
+                    <p className="text-[9px] text-white/60 font-medium">Management System</p>
                   </div>
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed max-w-[220px]">
+                <p className="text-[11px] text-white/60 leading-relaxed max-w-[220px]">
                   Platform manajemen crew & tracking penjualan terintegrasi. Dibangun oleh Ahtjong Labs.
                 </p>
                 <div className="flex items-center gap-1.5">
-                  <Badge variant="outline" className="text-[9px] font-mono px-1.5 py-0 border-emerald-200/60 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400">v3.0</Badge>
+                  <Badge variant="outline" className="text-[9px] font-mono px-1.5 py-0 border-[#E14227]/30 dark:border-[#E14227]/40 text-[#E14227] dark:text-[#E14227]">v3.0</Badge>
                   <Badge variant="outline" className="text-[9px] font-mono px-1.5 py-0"><Code2 className="w-2.5 h-2.5 mr-0.5" />PWA</Badge>
                 </div>
               </div>
 
               {/* Navigation */}
               <div className="space-y-3">
-                <p className="text-[10px] font-bold text-foreground uppercase tracking-widest">Menu</p>
+                <p className="text-[10px] font-bold text-white uppercase tracking-widest">Menu</p>
                 <div className="space-y-1.5">
                   {navItems.map(t => (
-                    <button key={t.val} onClick={() => { setActiveTab(t.val); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors py-0.5">
-                      <t.icon className="w-3 h-3" />{t.label}
+                    <button key={t.val} onClick={() => { setActiveTab(t.val); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className="flex items-center gap-2 text-xs text-white/60 hover:text-white transition-colors py-0.5">
+                      <t.icon className="w-3 h-3 text-white/40" />{t.label}
                     </button>
                   ))}
                 </div>
@@ -993,7 +1348,7 @@ export default function Home() {
 
               {/* Tech Stack */}
               <div className="space-y-3">
-                <p className="text-[10px] font-bold text-foreground uppercase tracking-widest">Teknologi</p>
+                <p className="text-[10px] font-bold text-white uppercase tracking-widest">Teknologi</p>
                 <div className="space-y-1.5">
                   {[
                     { icon: Monitor, label: 'Next.js 16' },
@@ -1001,8 +1356,8 @@ export default function Home() {
                     { icon: Beaker, label: 'Tailwind CSS' },
                     { icon: Sparkles, label: 'Framer Motion' },
                   ].map(t => (
-                    <div key={t.label} className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <t.icon className="w-3 h-3 text-emerald-500/50" />{t.label}
+                    <div key={t.label} className="flex items-center gap-2 text-xs text-white/60">
+                      <t.icon className="w-3 h-3 text-[#E14227]/50" />{t.label}
                     </div>
                   ))}
                 </div>
@@ -1010,19 +1365,19 @@ export default function Home() {
 
               {/* System */}
               <div className="space-y-3">
-                <p className="text-[10px] font-bold text-foreground uppercase tracking-widest">Sistem</p>
+                <p className="text-[10px] font-bold text-white uppercase tracking-widest">Sistem</p>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Clock className="w-3 h-3 text-emerald-500/50" />
-                    <span className="text-xs text-muted-foreground">GMT+7 (WIB)</span>
+                    <Clock className="w-3 h-3 text-[#E14227]/50" />
+                    <span className="text-xs text-white/60">GMT+7 (WIB)</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Smartphone className="w-3 h-3 text-emerald-500/50" />
-                    <span className="text-xs text-muted-foreground">PWA Ready</span>
+                    <Smartphone className="w-3 h-3 text-[#E14227]/50" />
+                    <span className="text-xs text-white/60">PWA Ready</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Shield className="w-3 h-3 text-emerald-500/50" />
-                    <span className="text-xs text-muted-foreground">Admin Auth</span>
+                    <Shield className="w-3 h-3 text-[#E14227]/50" />
+                    <span className="text-xs text-white/60">Admin Auth</span>
                   </div>
                 </div>
               </div>
@@ -1031,13 +1386,13 @@ export default function Home() {
 
           {/* Bottom bar */}
           <div className="py-3 border-t border-border/30 flex flex-col sm:flex-row items-center justify-between gap-2">
-            <p className="text-[10px] text-muted-foreground text-center sm:text-left">
-              © {currentYear} <span className="font-semibold text-foreground/70">Ahtjong Labs</span>. All rights reserved.
+            <p className="text-[10px] text-white/60 text-center sm:text-left">
+              © {currentYear} <span className="font-semibold text-white/70">Ahtjong Labs</span>. All rights reserved.
             </p>
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground">Made with</span>
+              <span className="text-[10px] text-white/60">Made with</span>
               <Heart className="w-3 h-3 text-red-500 fill-red-500" />
-              <span className="text-[10px] text-muted-foreground">in Indonesia</span>
+              <span className="text-[10px] text-white/60">in Indonesia</span>
             </div>
           </div>
         </div>
@@ -1051,7 +1406,7 @@ export default function Home() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="fixed bottom-20 right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center transition-colors"
+            className="fixed bottom-20 right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-[#E14227] hover:bg-[#B8321E] text-white shadow-lg shadow-[#E14227]/25 flex items-center justify-center transition-colors"
             aria-label="Back to top"
           >
             <ChevronUp className="w-5 h-5" />
@@ -1070,12 +1425,12 @@ export default function Home() {
             className="fixed z-40 left-0 right-0 md:left-auto md:right-6 md:bottom-6 md:w-[440px]"
             style={{ bottom: 'max(60px, env(safe-area-inset-bottom, 60px))' }}
           >
-            <div className="mx-3 mb-1 md:mx-0 md:mb-0 rounded-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-emerald-200 dark:border-emerald-800 shadow-2xl shadow-emerald-500/10">
+            <div className="mx-3 mb-1 md:mx-0 md:mb-0 rounded-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-[#E14227]/20 dark:border-[#E14227]/40 shadow-2xl shadow-[#E14227]/10">
               {/* Top row: info + close */}
               <div className="flex items-center justify-between px-3 pt-3 pb-1">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 shrink-0">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#E14227]/10 dark:bg-[#E14227]/20 shrink-0">
+                    <CheckCircle2 className="w-4 h-4 text-[#E14227] dark:text-[#E14227]" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-foreground truncate">
@@ -1111,15 +1466,15 @@ export default function Home() {
               <div className="px-3 pb-3">
                 {selectedClaimCrew && selectedClaimCrewId ? (
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+                    <div className="flex items-center gap-2 flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-[#E14227]/10 dark:bg-[#E14227]/20 border border-[#E14227]/20 dark:border-[#E14227]/40">
                       <Avatar className="w-5 h-5 shrink-0">
                         <AvatarImage src={selectedClaimCrew.photo || ''} />
-                        <AvatarFallback className="text-[7px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                        <AvatarFallback className="text-[7px] bg-[#E14227]/10 dark:bg-[#E14227]/20 text-[#E14227] dark:text-[#E14227]">
                           {selectedClaimCrew.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 truncate">{selectedClaimCrew.name}</span>
-                      <button onClick={() => { setSelectedClaimCrewId(''); setClaimCrewSearch('') }} className="ml-auto text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-300 shrink-0">
+                      <span className="text-xs font-medium text-[#E14227] dark:text-[#E14227] truncate">{selectedClaimCrew.name}</span>
+                      <button onClick={() => { setSelectedClaimCrewId(''); setClaimCrewSearch('') }} className="ml-auto text-[#E14227]/60 hover:text-[#E14227] dark:hover:text-[#E14227] shrink-0">
                         <X className="w-3 h-3" />
                       </button>
                     </div>
@@ -1127,7 +1482,7 @@ export default function Home() {
                       onClick={() => handleClaimSales(0)}
                       disabled={claiming}
                       size="sm"
-                      className="shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 animate-pulse-glow h-9 px-4"
+                      className="shrink-0 bg-gradient-to-r from-[#E14227] to-[#B8321E] hover:from-[#B8321E] hover:to-[#E14227] text-white shadow-lg shadow-[#E14227]/25 disabled:opacity-50 animate-pulse-glow h-9 px-4"
                     >
                       {claiming ? (
                         <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />OK</>
@@ -1153,14 +1508,14 @@ export default function Home() {
                         onClick={() => handleClaimSales(0)}
                         disabled={true}
                         size="sm"
-                        className="shrink-0 bg-gradient-to-r from-emerald-500 to-emerald-700 text-white shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed h-9 px-4"
+                        className="shrink-0 bg-gradient-to-r from-[#E14227] to-[#B8321E] text-white shadow-lg shadow-[#E14227]/25 disabled:opacity-50 disabled:cursor-not-allowed h-9 px-4"
                       >
                         <UserCheck className="w-3.5 h-3.5 mr-1.5" />Claim
                       </Button>
                     </div>
                     {/* Crew search dropdown */}
                     {!selectedClaimCrewId && claimCrewResults.length > 0 && (
-                      <div className="absolute bottom-full left-0 right-8 mb-1 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-gray-900 shadow-xl max-h-52 overflow-y-auto">
+                      <div className="absolute bottom-full left-0 right-8 mb-1 rounded-xl border border-[#E14227]/20 dark:border-[#E14227]/40 bg-white dark:bg-gray-900 shadow-xl max-h-52 overflow-y-auto">
                         {claimCrewResults.map(c => (
                           <button
                             key={c.id}
@@ -1169,7 +1524,7 @@ export default function Home() {
                           >
                             <Avatar className="w-7 h-7 shrink-0">
                               <AvatarImage src={c.photo || ''} />
-                              <AvatarFallback className="text-[8px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                              <AvatarFallback className="text-[8px] bg-[#E14227]/10 dark:bg-[#E14227]/20 text-[#E14227] dark:text-[#E14227]">
                                 {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                               </AvatarFallback>
                             </Avatar>
@@ -1185,7 +1540,7 @@ export default function Home() {
                 )}
                 {/* Anti double-claim indicator */}
                 <div className="flex items-center gap-1.5 mt-1.5 px-0.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#B2AC88] animate-pulse" />
                   <span className="text-[9px] text-muted-foreground">Anti double-claim aktif</span>
                 </div>
               </div>
@@ -1195,39 +1550,53 @@ export default function Home() {
       </AnimatePresence>
 
       {/* ═══ MOBILE BOTTOM NAVIGATION ═══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#1A1A1B]/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
         <div className="flex items-center justify-around px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
           {navItems.map(t => {
             const isActive = activeTab === t.val
+            const hasUnclaimed = t.val === 'claims' && notificationCount > 0
             return (
-              <button
+              <motion.button
                 key={t.val}
                 onClick={() => { setActiveTab(t.val); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                className={`relative flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-2xl min-w-[64px] transition-all duration-200 ${
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+                className={`relative flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-2xl min-w-[64px] transition-colors duration-200 ${
                   isActive
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-muted-foreground'
+                    ? 'text-[#E14227] dark:text-[#E14227]'
+                    : 'text-muted-foreground active:text-[#E14227]'
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="bottomnav-active"
-                    className="absolute inset-0 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40"
+                    className="absolute inset-0 rounded-2xl bg-[#E14227]/10 dark:bg-[#E14227]/20 shadow-sm shadow-[#E14227]/10"
                     transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
                   />
                 )}
-                <div className={`relative z-10 flex flex-col items-center gap-0.5`}>
+                <div className="relative z-10 flex flex-col items-center gap-0.5">
                   <motion.div
-                    whileTap={{ scale: 0.9 }}
-                    className={`w-6 h-6 flex items-center justify-center rounded-lg transition-all duration-200 ${isActive ? 'bg-emerald-100 dark:bg-emerald-900/60' : ''}`}
+                    className={`w-6 h-6 flex items-center justify-center rounded-lg transition-all duration-200 ${isActive ? 'bg-[#E14227]/10 dark:bg-[#E14227]/20' : ''}`}
+                    animate={isActive ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+                    transition={{ duration: 0.3 }}
                   >
                     <t.icon className={`w-[18px] h-[18px] transition-all duration-200 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
                   </motion.div>
-                  <span className={`text-[10px] font-semibold leading-none transition-all duration-200 ${isActive ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                  <span className={`text-[10px] font-semibold leading-none transition-all duration-200 ${isActive ? 'text-[#E14227] dark:text-[#E14227]' : ''}`}>
                     {t.val === 'claims' ? 'Claim' : t.val === 'management' ? 'Mgmt' : t.label}
                   </span>
                 </div>
-              </button>
+                {/* Notification badge for unclaimed items */}
+                {hasUnclaimed && !isActive && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute top-0.5 right-1.5 flex items-center justify-center"
+                  >
+                    <span className="w-2 h-2 bg-[#E14227] rounded-full ring-2 ring-white dark:ring-[#1A1A1B] animate-badge-pulse" />
+                  </motion.span>
+                )}
+              </motion.button>
             )
           })}
         </div>
@@ -1235,5 +1604,6 @@ export default function Home() {
 
       </div>
       </div>
+    </>
   )
 }

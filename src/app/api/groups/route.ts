@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
+import { logActivity } from '@/lib/activity-logger'
 
 export async function GET() {
   try {
@@ -149,6 +150,12 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // Log create group activity (fire-and-forget)
+    logActivity('CREATE_GROUP', {
+      description: `Tambah group: ${name}`,
+      details: { name },
+    }).catch(() => {})
+
     return NextResponse.json(group, { status: 201 })
   } catch (error: unknown) {
     console.error('Create group error:', error)
@@ -213,6 +220,18 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
     }
+
+    const existing = await db.group.findUnique({ where: { id } })
+
+    if (!existing) {
+      return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
+    }
+
+    // Log delete group activity (fire-and-forget)
+    logActivity('DELETE_GROUP', {
+      description: `Hapus group: ${existing.name}`,
+      details: { name: existing.name },
+    }).catch(() => {})
 
     await db.group.delete({ where: { id } })
 

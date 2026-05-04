@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
+import { logActivity } from '@/lib/activity-logger'
 
 // ─────────────────────────────────────────────
 // PUT /api/claims/unclaim — Unclaim sales (remove crew assignment)
@@ -54,6 +55,13 @@ export async function PUT(request: NextRequest) {
         claimedAt: null,
       },
     })
+
+    // Log unclaim activity (fire-and-forget)
+    logActivity('UNCLAIM_SALE', {
+      description: `Unclaim ${result.count} penjualan`,
+      saleId: validIds[0],
+      details: { saleId: validIds[0] },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

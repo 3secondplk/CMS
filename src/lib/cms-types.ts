@@ -41,10 +41,20 @@ export interface TrendData {
 }
 
 export interface DashboardData {
-  crewStats: CrewStat[]; totals: { today: number; week: number; month: number; todayQty: number; weekQty: number; monthQty: number; totalTransactions: number }
+  crewStats: CrewStat[]; totals: {
+    // Claimed-only period totals (sales assigned to crews)
+    today: number; week: number; month: number; todayQty: number; weekQty: number; monthQty: number
+    // ALL imported data totals (from Excel, including unclaimed)
+    totalTransactions: number; totalSettle: number; totalQty: number
+    importedToday: number; importedTodayQty: number
+    importedWeek: number; importedWeekQty: number
+    importedMonth: number; importedMonthQty: number
+  }
   trends: { today: TrendData; week: TrendData; month: TrendData }
   groupAchievements: GroupAchievement[]; topCrews: CrewStat[]; recentSales: RecentSale[]
   dateInfo: { today: string; currentWeek: number; weekStart: number; weekEnd: number; currentMonth: number; currentYear: number }
+  lastWeekTotals: { settle: number; qty: number; transactions: number } | null
+  claimedCount: number; unclaimedCount: number
 }
 
 export interface Crew {
@@ -60,6 +70,7 @@ export interface Group {
 
 export interface ClaimSale {
   id: string; tanggal: string; kodeExtend: string; qty: number; settle: number
+  idPenjualan: string | null
   brand: string; dept: string; modul: string; program: string; pembayaran: string
   createdAt: string; claimedAt: string | null
   crew: { id: string; name: string; employeeId: string; photo: string | null } | null

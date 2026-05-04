@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────
-// CMS Crew Management System — Prisma Schema (PostgreSQL)
+// CMS Crew Management System — Prisma Schema (SQLite)
 // Developer: Ahtjong Labs
 // ─────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ model Crew {
   group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sales      Sale[]
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 model Sale {
@@ -81,7 +81,6 @@ model ActivityLog {
   description String
   crewName    String?
   saleId      String?
-  metadata    String?  // JSON string for extra data
+  metadata    String?
   createdAt   DateTime @default(now())
 }
-
