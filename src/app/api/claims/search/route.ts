@@ -1,34 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
-import { Prisma } from '@prisma/client'
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/claims/search — True case-insensitive search for SQLite
-// Uses LOWER() on both sides to guarantee case-insensitive matching
-// regardless of SQLite PRAGMA case_sensitive_like setting.
+// GET /api/claims/search — Case-insensitive search for SQLite
+// Uses Prisma findMany with contains (LIKE) for reliability.
+// SQLite LIKE is case-insensitive for ASCII by default.
 // ─────────────────────────────────────────────────────────────
-
-function buildSearchConditions(search: string, includeCrew: boolean) {
-  // Escape SQL LIKE wildcards in search term
-  const escaped = search.replace(/%/g, '\\%').replace(/_/g, '\\_')
-  const pattern = `%${escaped}%`
-
-  const conditions: Prisma.Sql[] = [
-    Prisma.sql`LOWER("Sale"."kodeExtend") LIKE LOWER(${pattern}) ESCAPE '\\'`,
-    Prisma.sql`LOWER("Sale"."brand") LIKE LOWER(${pattern}) ESCAPE '\\'`,
-    Prisma.sql`LOWER("Sale"."dept") LIKE LOWER(${pattern}) ESCAPE '\\'`,
-    Prisma.sql`LOWER("Sale"."modul") LIKE LOWER(${pattern}) ESCAPE '\\'`,
-  ]
-
-  if (includeCrew) {
-    conditions.push(
-      Prisma.sql`LOWER("crew"."name") LIKE LOWER(${pattern}) ESCAPE '\\'`
-    )
-  }
-
-  return conditions
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -45,158 +23,19 @@ export async function GET(request: NextRequest) {
     const claimed = searchParams.get('claimed') || ''
     const crewId = searchParams.get('crewId') || ''
 
-    // ── Use raw SQL for search to guarantee LOWER() case-insensitive matching ──
-    if (search) {
-      const includeCrew = claimed !== 'false'
-      const searchConditions = buildSearchConditions(search, includeCrew)
-      const searchWhere = Prisma.join(searchConditions, ' OR ')
+    // ── Build base filters (date, claimed, program, crew) ──
+    const baseFilters: Record<string, any> = {}
 
-      // Build non-search filter clauses
-      const nonSearchClauses: Prisma.Sql[] = []
-
-      // Claimed filter
-      if (claimed === 'true') {
-        nonSearchClauses.push(crewId
-          ? Prisma.sql`"Sale"."crewId" = ${crewId}`
-          : Prisma.sql`"Sale"."crewId" IS NOT NULL`
-        )
-      } else if (claimed === 'false') {
-        nonSearchClauses.push(Prisma.sql`"Sale"."crewId" IS NULL`)
-      } else if (crewId) {
-        nonSearchClauses.push(Prisma.sql`"Sale"."crewId" = ${crewId}`)
-      }
-
-      // Date range filter
-      if (dateFrom || dateTo) {
-        if (dateFrom && dateTo) {
-          const [y, m, d] = dateTo.split('-').map(Number)
-          const nextDay = new Date(y, m - 1, d + 1)
-          const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`
-          nonSearchClauses.push(
-            Prisma.sql`"Sale"."tanggal" >= ${dateFrom} AND "Sale"."tanggal" < ${nextDayStr}`
-          )
-        } else if (dateFrom) {
-          nonSearchClauses.push(Prisma.sql`"Sale"."tanggal" >= ${dateFrom}`)
-        } else {
-          nonSearchClauses.push(Prisma.sql`"Sale"."tanggal" <= ${dateTo}`)
-        }
-      }
-
-      // Program filter
-      if (program) {
-        nonSearchClauses.push(Prisma.sql`"Sale"."program" = ${program}`)
-      }
-
-      // Combine: (search conditions) AND (non-search conditions)
-      let whereSql: Prisma.Sql
-      if (nonSearchClauses.length > 0) {
-        const nonSearchWhere = Prisma.join(nonSearchClauses, ' AND ')
-        whereSql = Prisma.sql`(${searchWhere}) AND (${nonSearchWhere})`
-      } else {
-        whereSql = searchWhere
-      }
-
-      const offset = (page - 1) * limit
-
-      // Fetch sales with crew info
-      const sales = await db.$queryRawUnsafe(`
-        SELECT
-          "Sale"."id", "Sale"."tanggal", "Sale"."kodeExtend", "Sale"."qty",
-          "Sale"."hjp", "Sale"."netto", "Sale"."diskon", "Sale"."diskonRp",
-          "Sale"."potongan", "Sale"."potonganV", "Sale"."settle",
-          "Sale"."pembayaran", "Sale"."program", "Sale"."channelStock",
-          "Sale"."idPenjualan", "Sale"."statusRetention", "Sale"."retentionCode",
-          "Sale"."brand", "Sale"."dept", "Sale"."modul", "Sale"."ukuran",
-          "Sale"."crewId", "Sale"."claimedAt", "Sale"."createdAt",
-          "crew"."id" AS "crewId_", "crew"."name" AS "crewName",
-          "crew"."employeeId" AS "crewEmployeeId", "crew"."photo" AS "crewPhoto"
-        FROM "Sale"
-        LEFT JOIN "Crew" AS "crew" ON "Sale"."crewId" = "crew"."id"
-        WHERE ${whereSql.sql}
-        ORDER BY "Sale"."createdAt" DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `, ...whereSql.values) as any[]
-
-      // Format sales to match Prisma's include format (convert BigInt to Number)
-      const formattedSales = sales.map(s => ({
-        id: s.id,
-        tanggal: s.tanggal,
-        kodeExtend: s.kodeExtend,
-        qty: Number(s.qty ?? 0),
-        hjp: Number(s.hjp ?? 0),
-        netto: Number(s.netto ?? 0),
-        diskon: Number(s.diskon ?? 0),
-        diskonRp: Number(s.diskonRp ?? 0),
-        potongan: Number(s.potongan ?? 0),
-        potonganV: Number(s.potonganV ?? 0),
-        settle: Number(s.settle ?? 0),
-        pembayaran: s.pembayaran,
-        program: s.program,
-        channelStock: s.channelStock,
-        idPenjualan: s.idPenjualan,
-        statusRetention: s.statusRetention,
-        retentionCode: s.retentionCode,
-        brand: s.brand,
-        dept: s.dept,
-        modul: s.modul,
-        ukuran: s.ukuran,
-        crewId: s.crewId,
-        claimedAt: s.claimedAt,
-        createdAt: s.createdAt,
-        crew: s.crewId_ ? {
-          id: s.crewId_,
-          name: s.crewName,
-          employeeId: s.crewEmployeeId,
-          photo: s.crewPhoto,
-        } : null,
-      }))
-
-      // Count total
-      const countResult = await db.$queryRawUnsafe(
-        `SELECT COUNT(*) as total FROM "Sale" LEFT JOIN "Crew" AS "crew" ON "Sale"."crewId" = "crew"."id" WHERE ${whereSql.sql}`,
-        ...whereSql.values
-      ) as any[]
-      const total = Number(countResult[0]?.total || 0)
-
-      // Summary (include JOIN for crew search condition)
-      const summaryResult = await db.$queryRawUnsafe(
-        `SELECT COALESCE(SUM("Sale"."qty"), 0) as totalQty, COALESCE(SUM("Sale"."settle"), 0) as totalSettle, COALESCE(SUM("Sale"."hjp"), 0) as totalHjp FROM "Sale" LEFT JOIN "Crew" AS "crew" ON "Sale"."crewId" = "crew"."id" WHERE ${whereSql.sql}`,
-        ...whereSql.values
-      ) as any[]
-      const totalQty = Number(summaryResult[0]?.totalQty || 0)
-      const totalSettle = Number(summaryResult[0]?.totalSettle || 0)
-
-      // Struk count (include JOIN for crew search condition)
-      const strukResult = await db.$queryRawUnsafe(
-        `SELECT COUNT(DISTINCT "Sale"."idPenjualan") as totalStruk FROM "Sale" LEFT JOIN "Crew" AS "crew" ON "Sale"."crewId" = "crew"."id" WHERE "Sale"."idPenjualan" IS NOT NULL AND "Sale"."idPenjualan" != '' AND (${whereSql.sql})`,
-        ...whereSql.values
-      ) as any[]
-      const totalStruk = Number(strukResult[0]?.totalStruk || 0)
-      const basketSize = totalStruk > 0 ? totalQty / totalStruk : 0
-      const pricePoint = totalQty > 0 ? totalSettle / totalQty : 0
-
-      const totalPages = Math.max(1, Math.ceil(total / limit))
-
-      return NextResponse.json({
-        sales: formattedSales,
-        total,
-        page,
-        totalPages,
-        summary: { totalQty, totalSettle, totalStruk, basketSize, pricePoint },
-      })
-    }
-
-    // ── No search term: use standard Prisma query ──
-    const where: Record<string, any> = {}
-
+    // Claimed filter
     if (claimed === 'true') {
-      where.crewId = crewId ? crewId : { not: null }
+      baseFilters.crewId = crewId ? crewId : { not: null }
     } else if (claimed === 'false') {
-      where.crewId = { equals: null }
+      baseFilters.crewId = { equals: null }
     } else if (crewId) {
-      where.crewId = crewId
+      baseFilters.crewId = crewId
     }
 
+    // Date range filter
     if (dateFrom || dateTo) {
       const tanggalFilter: Record<string, unknown> = {}
       if (dateFrom) tanggalFilter.gte = dateFrom
@@ -206,16 +45,84 @@ export async function GET(request: NextRequest) {
         const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`
         tanggalFilter.lt = nextDayStr
       }
-      where.tanggal = tanggalFilter
+      baseFilters.tanggal = tanggalFilter
     }
 
+    // Program filter
     if (program) {
-      where.program = program
+      baseFilters.program = program
     }
 
+    // ── Build search OR conditions ──
+    // SQLite LIKE is case-insensitive for ASCII by default.
+    // We also uppercase the search for kodeExtend since that field stores UPPERCASE values,
+    // ensuring matches regardless of input case.
+    if (search) {
+      const searchOr: Record<string, any>[] = [
+        { kodeExtend: { contains: search.toUpperCase() } },
+        { kodeExtend: { contains: search } },
+        { brand: { contains: search } },
+        { dept: { contains: search } },
+        { modul: { contains: search } },
+      ]
+
+      // Include crew name search only when showing claimed items
+      if (claimed !== 'false') {
+        searchOr.push({ crew: { name: { contains: search } } })
+      }
+
+      const where: Record<string, any> = {
+        OR: searchOr,
+      }
+
+      // Add base filters as AND conditions
+      if (Object.keys(baseFilters).length > 0) {
+        where.AND = baseFilters
+      }
+
+      const [sales, total, summary, strukGroups] = await Promise.all([
+        db.sale.findMany({
+          where,
+          include: {
+            crew: {
+              select: { id: true, name: true, employeeId: true, photo: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        db.sale.count({ where }),
+        db.sale.aggregate({
+          _sum: { qty: true, settle: true, hjp: true },
+          where,
+        }),
+        db.sale.groupBy({
+          by: ['idPenjualan'],
+          where: { ...where, idPenjualan: { not: null } },
+        }),
+      ])
+
+      const totalPages = Math.max(1, Math.ceil(total / limit))
+      const totalQty = Number(summary._sum.qty ?? 0)
+      const totalSettle = Number(summary._sum.settle ?? 0)
+      const totalStruk = strukGroups.length
+      const basketSize = totalStruk > 0 ? totalQty / totalStruk : 0
+      const pricePoint = totalQty > 0 ? totalSettle / totalQty : 0
+
+      return NextResponse.json({
+        sales,
+        total,
+        page,
+        totalPages,
+        summary: { totalQty, totalSettle, totalStruk, basketSize, pricePoint },
+      })
+    }
+
+    // ── No search term: use standard Prisma query ──
     const [sales, total, summary, strukGroups] = await Promise.all([
       db.sale.findMany({
-        where,
+        where: baseFilters,
         include: {
           crew: {
             select: { id: true, name: true, employeeId: true, photo: true },
@@ -225,14 +132,14 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * limit,
         take: limit,
       }),
-      db.sale.count({ where }),
+      db.sale.count({ where: baseFilters }),
       db.sale.aggregate({
         _sum: { qty: true, settle: true, hjp: true },
-        where,
+        where: baseFilters,
       }),
       db.sale.groupBy({
         by: ['idPenjualan'],
-        where: { ...where, idPenjualan: { not: null } },
+        where: { ...baseFilters, idPenjualan: { not: null } },
       }),
     ])
 
