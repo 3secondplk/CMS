@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
     const groupId = searchParams.get('groupId')
+    const customFilename = searchParams.get('filename')
 
     // ─── Summary format ──────────────────────────────────────────
     if (format === 'summary') {
@@ -178,7 +179,7 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="laporan-penjualan.csv"',
+        'Content-Disposition': `attachment; filename="${customFilename || 'laporan-penjualan.csv'}"`,
       },
     })
   } catch (error) {

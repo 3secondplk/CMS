@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -128,7 +128,7 @@ interface ClaimsTabProps {
   claimSummary: { totalQty: number; totalSettle: number; totalStruk: number; basketSize: number; pricePoint: number } | null
   isAdmin: boolean
   todayStr: string
-  // Computed
+  // Computed (sortedClaimSales is no longer used — we compute sortedDisplaySales locally)
   sortedClaimSales: ClaimSale[]
   selectedItemsTotal: number
   selectedItemsPreview: ClaimSale[]
@@ -151,7 +151,10 @@ interface ClaimsTabProps {
   // Refs
   fileInputRef: React.RefObject<HTMLInputElement | null>
   // Setters
-  setClaimSearch: (v: string) => void
+  setClaimSearch?: (v: string) => void
+  updateClaimSearch: (v: string, immediate?: boolean) => void
+  forceSearchNow?: () => void
+  isSearchDebouncing?: boolean
   setClaimDateFrom: (v: string) => void
   setClaimDateTo: (v: string) => void
   setClaimFilterProgram: (v: string) => void
@@ -185,12 +188,12 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
     claimsLoading, claimSortField, claimSortDir,
     programs, crews, selectedSaleIds, claimCrewSearch, selectedClaimCrewId,
     claimSummary, isAdmin, todayStr,
-    sortedClaimSales, selectedItemsTotal, selectedItemsPreview, selectedClaimCrew, claimCrewResults,
+    sortedClaimSales: _sortedClaimSales, selectedItemsTotal, selectedItemsPreview, selectedClaimCrew, claimCrewResults,
     claimStats, globalClaimedCount, globalUnclaimedCount, activeQuickFilter, activeFilterCount,
     uploading, uploadProgress, uploadResult, showUploadModal, isDragOver,
     claiming, showFilterPanel, batchSelectedIds,
     fileInputRef,
-    setClaimSearch, setClaimDateFrom, setClaimDateTo,
+    updateClaimSearch, setClaimDateFrom, setClaimDateTo,
     setClaimFilterProgram, setClaimFilterCrew, setClaimShowClaimed,
     setClaimSortField, setClaimSortDir,
     setSelectedSaleIds, setClaimCrewSearch, setSelectedClaimCrewId,
@@ -198,6 +201,128 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
     fetchClaims, handleClaimSales, handleExport, handleUnclaimSale,
     handleFileUpload, handleDropFile, openEditSale, setDeleteConfirm, setActiveTab,
   } = props
+
+  // ─── Local search state (prevents full page re-renders on every keystroke) ───
+  // The input uses local state for display. Parent's updateClaimSearch is only called
+  // when clearing search, avoiding full page.tsx re-renders on every keystroke.
+  const [searchText, setSearchText] = useState(claimSearch)
+  const localDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [localSearchLoading, setLocalSearchLoading] = useState(false)
+  const [localSearchResults, setLocalSearchResults] = useState<ClaimSale[] | null>(null)
+  const [localSearchTotal, setLocalSearchTotal] = useState(0)
+  const [localSearchTotalPages, setLocalSearchTotalPages] = useState(1)
+  const [localSearchPage, setLocalSearchPage] = useState(1)
+  const [localSearchSummary, setLocalSearchSummary] = useState<{ totalQty: number; totalSettle: number; totalStruk: number; basketSize: number; pricePoint: number } | null>(null)
+
+  const isLocalSearching = localSearchResults !== null
+
+  // Determine which data to display: local search results or parent's data
+  const displaySales = isLocalSearching ? localSearchResults! : claimSales
+  const displayTotal = isLocalSearching ? localSearchTotal : claimTotal
+  const displayTotalPages = isLocalSearching ? localSearchTotalPages : claimTotalPages
+  const displayPage = isLocalSearching ? localSearchPage : claimPage
+  const displaySummary = isLocalSearching ? localSearchSummary : claimSummary
+
+  // Local search fetch — calls the new /api/claims/search endpoint
+  const fetchLocalSearch = React.useCallback(async (query: string, page: number) => {
+    if (!query.trim()) {
+      setLocalSearchResults(null)
+      return
+    }
+    setLocalSearchLoading(true)
+    try {
+      const params = new URLSearchParams({ search: query, page: String(page), limit: '50' })
+      if (claimDateFrom) params.set('dateFrom', claimDateFrom)
+      if (claimDateTo) params.set('dateTo', claimDateTo)
+      if (claimFilterProgram) params.set('program', claimFilterProgram)
+      if (claimFilterCrew) params.set('crewId', claimFilterCrew)
+      if (claimShowClaimed !== 'all') params.set('claimed', claimShowClaimed === 'claimed' ? 'true' : 'false')
+      const r = await fetch(`/api/claims/search?${params}`)
+      const d = await r.json()
+      setLocalSearchResults(d.sales || [])
+      setLocalSearchTotal(d.total || 0)
+      setLocalSearchTotalPages(d.totalPages || 1)
+      setLocalSearchPage(d.page || 1)
+      if (d.summary) setLocalSearchSummary(d.summary)
+    } catch {
+      setLocalSearchResults(null)
+    } finally {
+      setLocalSearchLoading(false)
+    }
+  }, [claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed])
+
+  // Local onChange handler — ONLY updates local state + calls local search API.
+  // Does NOT trigger parent state change, preventing full page.tsx re-render on every keystroke.
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearchText(value)
+    const trimmed = value.replace(/[\r\n]+$/g, '').trim()
+    if (localDebounceRef.current) clearTimeout(localDebounceRef.current)
+    if (trimmed === '') {
+      // Clear local search, sync parent to empty so it fetches fresh data
+      setLocalSearchResults(null)
+      updateClaimSearch('', true)
+    } else {
+      // Debounced local search to avoid spamming API on every keystroke
+      localDebounceRef.current = setTimeout(() => {
+        fetchLocalSearch(trimmed, 1)
+      }, 300)
+    }
+  }, [updateClaimSearch, fetchLocalSearch])
+
+  // Clear search handler
+  const clearSearch = React.useCallback(() => {
+    setSearchText('')
+    setLocalSearchResults(null)
+    if (localDebounceRef.current) clearTimeout(localDebounceRef.current)
+    updateClaimSearch('', true) // Sync parent to empty so it fetches fresh data
+  }, [updateClaimSearch])
+
+  // Enter key handler (barcode scanner / manual) — immediate local search only
+  const handleSearchEnter = React.useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (localDebounceRef.current) clearTimeout(localDebounceRef.current)
+      const trimmed = searchText.replace(/[\r\n]+$/g, '').trim()
+      setSearchText(trimmed)
+      // Only use local search — NO parent state change, no page re-render
+      fetchLocalSearch(trimmed, 1)
+    }
+  }, [searchText, fetchLocalSearch])
+
+  // Re-trigger local search when other filters change while search is active
+  // (e.g. user changes date range while having a search term active)
+  const activeSearchRef = useRef(searchText)
+  activeSearchRef.current = searchText
+  React.useEffect(() => {
+    if (isLocalSearching && activeSearchRef.current.trim()) {
+      fetchLocalSearch(activeSearchRef.current.trim(), 1)
+    }
+  }, [claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed, isLocalSearching, fetchLocalSearch])
+
+  // Cleanup local debounce on unmount
+  React.useEffect(() => {
+    return () => { if (localDebounceRef.current) clearTimeout(localDebounceRef.current) }
+  }, [])
+
+  // Sort local search results the same way page.tsx sorts claimSales
+  const sortedDisplaySales = React.useMemo(() => {
+    const data = displaySales
+    return [...data].sort((a, b) => {
+      const dir = claimSortDir === 'asc' ? 1 : -1
+      if (claimSortField === 'tanggal') return dir * a.tanggal.localeCompare(b.tanggal)
+      if (claimSortField === 'qty') return dir * (a.qty - b.qty)
+      if (claimSortField === 'settle') return dir * (a.settle - b.settle)
+      if (claimSortField === 'kodeExtend') return dir * a.kodeExtend.localeCompare(b.kodeExtend)
+      if (claimSortField === 'dept') return dir * (a.dept || '').localeCompare(b.dept || '')
+      if (claimSortField === 'brand') return dir * (a.brand || '').localeCompare(b.brand || '')
+      return dir * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    })
+  }, [displaySales, claimSortField, claimSortDir])
+
+  // Computed display loading: use local search loading when doing local search
+  const displayLoading = isLocalSearching ? localSearchLoading : claimsLoading
+  // Debounce indicator: show when typing but local search hasn't finished yet
+  const displayDebouncing = isLocalSearching && localSearchLoading && searchText.trim() !== ''
 
   return (
     <TabsContent value="claims" className="mt-4 sm:mt-6 pb-24 md:pb-8 overflow-hidden">
@@ -278,7 +403,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
           )
         })()}
 
-        {/* ── Section A: Import Hari Ini (Hero) ── */}
+        {/* ── Section A: Import Hari Ini (Hero) — always uses parent data (not affected by search) ── */}
         {claimTotal > 0 && !claimsLoading && (
           <motion.div {...fadeIn} transition={{ delay: 0.05 }}>
             <div className="relative overflow-hidden rounded-xl border border-[#E6BAA3]/60 dark:border-[#B8321E]/40 bg-gradient-to-r from-[#F0D5C5] to-[#B5C7DB]/60 dark:from-[#B8321E]/20 dark:to-[#7E95B3]/10 p-4">
@@ -316,7 +441,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
           </motion.div>
         )}
 
-        {/* ── Section B: Progress Claim Overview ── */}
+        {/* ── Section B: Progress Claim Overview — always uses parent data (not affected by search) ── */}
         {claimSummary && claimTotal > 0 && !claimsLoading && (() => {
           const totalGlobal = globalClaimedCount + globalUnclaimedCount
           const claimedPct = totalGlobal > 0 ? Math.round((globalClaimedCount / totalGlobal) * 100) : 0
@@ -409,7 +534,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                   <div className="flex items-center gap-2 min-w-0">
                     <ShoppingCart className="w-5 h-5 text-[#E14227] shrink-0" />
                     <CardTitle className="text-base truncate">Laporan Penjualan</CardTitle>
-                    <Badge variant="outline" className="text-xs shrink-0">{fmtNum(claimTotal)} data</Badge>
+                    <Badge variant="outline" className="text-xs shrink-0">{fmtNum(displayTotal)} data</Badge>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Button size="sm" className="h-8 gap-1.5 bg-gradient-to-r from-[#E14227] to-[#9DB1CC] hover:from-[#B8321E] hover:to-[#7E95B3] text-white shadow-md shadow-[#E14227]/20" onClick={() => setShowUploadModal(true)}>
@@ -516,12 +641,13 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input
                               placeholder="Cari kode, brand, dept, crew..."
-                              value={claimSearch}
-                              onChange={e => setClaimSearch(e.target.value)}
+                              value={searchText}
+                              onChange={e => handleSearchChange(e.target.value)}
+                              onKeyDown={handleSearchEnter}
                               className="pl-9 h-10 w-full rounded-xl bg-white dark:bg-gray-900 border-border/60 text-sm"
                             />
-                            {claimSearch && (
-                              <button onClick={() => setClaimSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                            {searchText && (
+                              <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                                 <X className="w-3.5 h-3.5" />
                               </button>
                             )}
@@ -601,7 +727,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                   {/* Search bar */}
                   <div className="relative">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Cari kode, brand, dept, crew..." value={claimSearch} onChange={e => { setClaimSearch(e.target.value) }}
+                    <Input placeholder="Cari kode, brand, dept, crew..." value={searchText} onChange={e => handleSearchChange(e.target.value)} onKeyDown={handleSearchEnter}
                       className="pl-9 h-9 w-full sm:w-72" />
                   </div>
                   {/* Filters row */}
@@ -646,8 +772,8 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
               </div>
             </CardHeader>
             <CardContent className="min-w-0 overflow-hidden">
-            <LoadingOverlay loading={claimsLoading} label="Memuat data penjualan...">
-              {claimsLoading ? (
+            <LoadingOverlay loading={displayLoading || displayDebouncing} light={displayDebouncing && !displayLoading} label={displayDebouncing ? 'Menunggu pencarian...' : 'Memuat data penjualan...'}>
+              {displayLoading && displaySales.length === 0 ? (
                 <div className="space-y-3">
                   <div className="md:hidden space-y-3">
                     {Array.from({ length: 5 }).map((_, i) => (
@@ -697,7 +823,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                     </Table>
                   </div>
                 </div>
-              ) : claimSales.length === 0 ? (
+              ) : displaySales.length === 0 ? (
                 claimShowClaimed === 'unclaimed' ? (
                   <div className="text-center py-12 relative overflow-hidden">
                     {/* Confetti-like decorative elements */}
@@ -838,7 +964,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                 <>
                   {/* Mobile Card View — Premium */}
                   <div className="md:hidden space-y-3">
-                    {sortedClaimSales.map((sale, idx) => {
+                    {sortedDisplaySales.map((sale, idx) => {
                       const isSelected = selectedSaleIds.has(sale.id)
                       const isClaimed = !!sale.crew
                       return (
@@ -1000,7 +1126,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                             <button
                               className="w-4 h-4 rounded border border-muted-foreground/30 flex items-center justify-center transition-all hover:border-[#E14227]"
                               onClick={() => {
-                                const unclaimed = sortedClaimSales.filter(s => !s.crew)
+                                const unclaimed = sortedDisplaySales.filter(s => !s.crew)
                                 if (selectedSaleIds.size === unclaimed.length && unclaimed.length > 0) {
                                   setSelectedSaleIds(new Set())
                                 } else {
@@ -1010,7 +1136,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                               aria-label="Select all unclaimed rows"
                             >
                               {(() => {
-                                const unclaimed = sortedClaimSales.filter(s => !s.crew)
+                                const unclaimed = sortedDisplaySales.filter(s => !s.crew)
                                 return selectedSaleIds.size === unclaimed.length && unclaimed.length > 0 && (
                                   <CheckCircle2 className="w-3.5 h-3.5 text-[#E14227]" />
                                 )
@@ -1041,7 +1167,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sortedClaimSales.map((sale) => (
+                        {sortedDisplaySales.map((sale) => (
                           <TableRow
                             key={sale.id}
                             className={`sale-row group ${selectedSaleIds.has(sale.id) ? 'row-selected' : ''} ${batchSelectedIds.has(sale.id) ? 'bg-red-50/50 dark:bg-red-950/10' : ''} ${sale.crew ? 'opacity-75' : ''}`}
@@ -1163,29 +1289,29 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                   {/* Section 5: Pagination */}
                   <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-3">
                     <p className="text-xs text-muted-foreground">
-                      {claimTotal > 0 && `Menampilkan ${claimSales.length} dari ${fmtNum(claimTotal)}`}
+                      {displayTotal > 0 && `Menampilkan ${displaySales.length} dari ${fmtNum(displayTotal)}`}
                     </p>
                     <div className="flex items-center gap-2">
-                      <button className="pagination-btn border border-border" disabled={claimPage <= 1} onClick={() => fetchClaims(claimPage - 1)}>
+                      <button className="pagination-btn border border-border" disabled={displayPage <= 1} onClick={() => isLocalSearching ? fetchLocalSearch(searchText.trim(), displayPage - 1) : fetchClaims(displayPage - 1)}>
                         <ChevronLeft className="w-4 h-4 mr-1" /><span className="hidden sm:inline">Prev</span>
                       </button>
                       <div className="flex items-center gap-0.5">
-                        {getPageNumbers(claimPage, claimTotalPages).map((p, idx) => (
+                        {getPageNumbers(displayPage, displayTotalPages).map((p, idx) => (
                           p === '...' ? (
                             <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-xs text-muted-foreground">···</span>
                           ) : (
                             <button
                               key={p}
-                              onClick={() => fetchClaims(p)}
-                              className={`pagination-btn ${p === claimPage ? 'active' : 'text-muted-foreground border border-transparent'}`}
-                              style={p === claimPage ? { backgroundColor: '#E14227', color: 'white', borderColor: '#E14227' } : undefined}
+                              onClick={() => isLocalSearching ? fetchLocalSearch(searchText.trim(), p) : fetchClaims(p)}
+                              className={`pagination-btn ${p === displayPage ? 'active' : 'text-muted-foreground border border-transparent'}`}
+                              style={p === displayPage ? { backgroundColor: '#E14227', color: 'white', borderColor: '#E14227' } : undefined}
                             >
                               {p}
                             </button>
                           )
                         ))}
                       </div>
-                      <button className="pagination-btn border border-border" disabled={claimPage >= claimTotalPages} onClick={() => fetchClaims(claimPage + 1)}>
+                      <button className="pagination-btn border border-border" disabled={displayPage >= displayTotalPages} onClick={() => isLocalSearching ? fetchLocalSearch(searchText.trim(), displayPage + 1) : fetchClaims(displayPage + 1)}>
                         <span className="hidden sm:inline">Next</span><ChevronRight className="w-4 h-4 ml-1" />
                       </button>
                     </div>

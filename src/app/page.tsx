@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +14,7 @@ import {
   LayoutDashboard, Upload, Settings, Layers, Sun, Moon, Shield, LogOut,
   ChevronUp, Users, Crown, Target, Calendar, UserCheck, CheckCircle2,
   DollarSign, ShoppingCart, Search, X, Sparkles, Heart,
-  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard,
+  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard, Download,
 } from 'lucide-react'
 import { fmtRp, fmtNum, getWIBDate, getWIBToday, monthNames, dayNames, currentYear, getWeekRange, getMonthRange, safeFetch } from '@/lib/cms-utils'
 import type { CrewStat, GroupAchievement, DashboardData, Crew, Group, ClaimSale, GroupDetailData, DeleteConfirmState } from '@/lib/cms-types'
@@ -22,6 +22,7 @@ import type { CrewStat, GroupAchievement, DashboardData, Crew, Group, ClaimSale,
 import DashboardTab from '@/components/dashboard/DashboardTab'
 import ClaimsTab from '@/components/claims/ClaimsTab'
 import ManagementTab from '@/components/management/ManagementTab'
+import ExportTab from '@/components/export/ExportTab'
 import DeleteConfirmDialog from '@/components/modals/DeleteConfirmDialog'
 import EditSaleDialog from '@/components/modals/EditSaleDialog'
 import CrewDetailPanel from '@/components/modals/CrewDetailPanel'
@@ -79,8 +80,42 @@ export default function Home() {
   const [claimTotalPages, setClaimTotalPages] = useState(1)
   const [claimPage, setClaimPage] = useState(1)
   const [claimSearch, setClaimSearch] = useState('')
-  const deferredClaimSearch = useDeferredValue(claimSearch)
+  const [debouncedClaimSearch, setDebouncedClaimSearch] = useState('')
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ref to track latest search value for barcode scanner (avoids stale closure in forceSearchNow)
+  const claimSearchRef = useRef('')
   const todayStr = getWIBToday()
+
+  // ─── Custom debounce for claim search (fixes barcode scanner + prevents table glitch) ───
+  // Replaces useDeferredValue with a true 500ms debounce.
+  // On Enter key (from barcode scanner or manual), immediately search without waiting.
+  const updateClaimSearch = useCallback((value: string, immediate = false) => {
+    setClaimSearch(value)
+    claimSearchRef.current = value // Always keep ref in sync
+    // Trim trailing whitespace/newlines from barcode scanners
+    const trimmed = value.replace(/[\r\n]+$/g, '').trim()
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    if (immediate || trimmed === '') {
+      setDebouncedClaimSearch(trimmed)
+    } else {
+      searchDebounceRef.current = setTimeout(() => {
+        setDebouncedClaimSearch(trimmed)
+      }, 500)
+    }
+  }, [])
+
+  // Force immediate search (called on Enter keypress in search input)
+  // Uses ref instead of state to avoid stale closure when barcode scanner types fast
+  const forceSearchNow = useCallback(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    const trimmed = claimSearchRef.current.replace(/[\r\n]+$/g, '').trim()
+    setDebouncedClaimSearch(trimmed)
+  }, [])
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current) }
+  }, [])
 
   // BUGFIX: Restore filter state from localStorage (persists across reload)
   const [claimDateFrom, setClaimDateFrom] = useState(() => {
@@ -244,7 +279,7 @@ export default function Home() {
     search: '', dateFrom: '', dateTo: '', program: '', crew: '', showClaimed: 'unclaimed' as string,
   })
   // Keep refs in sync with state (no re-creation of fetchClaims)
-  claimFilterRefs.current.search = deferredClaimSearch
+  claimFilterRefs.current.search = debouncedClaimSearch
   claimFilterRefs.current.dateFrom = claimDateFrom
   claimFilterRefs.current.dateTo = claimDateTo
   claimFilterRefs.current.program = claimFilterProgram
@@ -280,13 +315,13 @@ export default function Home() {
     const tabChanged = prevActiveTabRef.current !== activeTab
     prevActiveTabRef.current = activeTab
     if (activeTab !== 'claims') return
-    const key = `${deferredClaimSearch}|${claimDateFrom}|${claimDateTo}|${claimFilterProgram}|${claimFilterCrew}|${claimShowClaimed}`
+    const key = `${debouncedClaimSearch}|${claimDateFrom}|${claimDateTo}|${claimFilterProgram}|${claimFilterCrew}|${claimShowClaimed}`
     // Always fetch on tab switch to claims, then only on actual filter changes
     if (!tabChanged && key === prevFilterKeyRef.current) return
     prevFilterKeyRef.current = key
     setClaimPage(1)
     fetchClaims(1)
-  }, [activeTab, deferredClaimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed, fetchClaims])
+  }, [activeTab, debouncedClaimSearch, claimDateFrom, claimDateTo, claimFilterProgram, claimFilterCrew, claimShowClaimed, fetchClaims])
 
   // Fetch programs for filter dropdown — staggered 500ms
   const fetchPrograms = useCallback(async () => {
@@ -417,10 +452,11 @@ export default function Home() {
       // ── Navigation and theme shortcuts: only when no input/dialog focused ──
       if (inputFocused || dialogOpen) return
 
-      // ── 1, 2, 3 : Switch tabs ──
+      // ── 1, 2, 3, 4, 5 : Switch tabs ──
       if (e.key === '1') { setActiveTab('dashboard'); return }
       if (e.key === '2') { setActiveTab('claims'); return }
-      if (e.key === '3') { setActiveTab('management'); return }
+      if (e.key === '3') { setActiveTab('export'); return }
+      if (e.key === '4') { setActiveTab('management'); return }
 
       // ── T : Toggle theme ──
       if (e.key === 't' || e.key === 'T') {
@@ -877,13 +913,12 @@ export default function Home() {
     return { text: 'Selamat Malam', icon: Moon, gradient: 'from-[#1A1A1B] via-[#3A3632] to-[#5A524C]', bgGradient: 'from-[#E6DDD0]/40 via-[#1A1A1B]/60 to-[#1A1A1B]/40 dark:from-[#1A1A1B]/30 dark:via-[#3A3632]/20 dark:to-[#1A1A1B]/10', iconColor: 'text-[#E6BAA3]', textColor: 'from-[#E6BAA3] to-[#D4956B] dark:from-[#E6BAA3] dark:to-[#D4956B]' }
   }, [wibDate])
 
-  // Check if dashboard is empty (no crew stats and no sales data)
-  const isDashboardEmpty = dashboard && !dashLoading && dashboard.crewStats.length === 0 && dashboard.topCrews.length === 0
 
   // ─── RENDER ────────────────────────────────────────────
   const navItems = [
     { val: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', desc: 'Ringkasan & statistik' },
     { val: 'claims', icon: Upload, label: 'Claim Penjualan', desc: 'Upload & klaim data' },
+    { val: 'export', icon: Download, label: 'Export Data', desc: 'Preview & ekspor penjualan' },
     { val: 'management', icon: Settings, label: 'Management', desc: 'Kelola crew & grup' },
   ]
 
@@ -1074,89 +1109,6 @@ export default function Home() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
             {/* ─── Dashboard Tab ────────────────────────── */}
-            {/* ── Welcome Section (empty state) ── */}
-            {activeTab === 'dashboard' && isDashboardEmpty && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="py-8 sm:py-12"
-              >
-                <div className="max-w-md mx-auto text-center">
-                  {/* Large illustration */}
-                  <motion.div
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.6, delay: 0.3, type: 'spring' }}
-                    className="relative mx-auto w-24 h-24 sm:w-28 sm:h-28 mb-6"
-                  >
-                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#E6BAA3] to-[#F0D5C5] dark:from-[#E14227]/20 dark:to-[#9DB1CC]/20 rotate-6" />
-                    <div className="relative w-full h-full rounded-3xl bg-gradient-to-br from-[#E14227] to-[#D4956B] flex items-center justify-center shadow-xl shadow-[#E14227]/20">
-                      <Layers className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
-                    </div>
-                    {/* Decorative floating elements */}
-                    <motion.div
-                      animate={{ y: [-4, 4, -4] }}
-                      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                      className="absolute -top-3 -right-3 w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shadow-md"
-                    >
-                      <Sun className="w-4 h-4 text-amber-500" />
-                    </motion.div>
-                    <motion.div
-                      animate={{ y: [3, -3, 3] }}
-                      transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
-                      className="absolute -bottom-2 -left-3 w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center shadow-md"
-                    >
-                      <Users className="w-3.5 h-3.5 text-purple-500" />
-                    </motion.div>
-                    <motion.div
-                      animate={{ y: [-2, 5, -2] }}
-                      transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                      className="absolute top-1 -left-4 w-6 h-6 rounded-md bg-[#D5E0EB] dark:bg-[#9DB1CC]/20 flex items-center justify-center shadow-md"
-                    >
-                      <Target className="w-3 h-3 text-[#9DB1CC]" />
-                    </motion.div>
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.5 }}
-                  >
-                    <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">
-                      Selamat Datang di CMS Crew!
-                    </h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-sm mx-auto">
-                      Mulai kelola crew dan tracking penjualan. Upload data penjualan atau buat crew pertamamu untuk memulai.
-                    </p>
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.65 }}
-                    className="flex flex-col sm:flex-row items-center justify-center gap-3"
-                  >
-                    <Button
-                      onClick={() => { setShowUploadModal(true); setActiveTab('claims') }}
-                      className="w-full sm:w-auto bg-gradient-to-r from-[#E14227] to-[#B8321E] hover:from-[#B8321E] hover:to-[#E14227] text-white shadow-lg shadow-[#E14227]/25"
-                    >
-                      <FileUp className="w-4 h-4 mr-2" />
-                      Upload Data
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => { setActiveTab('management') }}
-                      className="w-full sm:w-auto border-[#E14227]/30 dark:border-[#E14227]/40 text-[#E14227] dark:text-[#E14227] hover:bg-[#E14227]/10 dark:hover:bg-[#E14227]/20"
-                    >
-                      <UserPlus className="w-4 h-4 mr-2" />
-                      Buat Crew
-                    </Button>
-                  </motion.div>
-                </div>
-              </motion.div>
-            )}
-
             <DashboardTab
               dashboard={dashboard}
               dashPeriod={dashPeriod}
@@ -1220,6 +1172,9 @@ export default function Home() {
               batchSelectedIds={batchSelectedIds}
               fileInputRef={fileInputRef}
               setClaimSearch={setClaimSearch}
+              updateClaimSearch={updateClaimSearch}
+              forceSearchNow={forceSearchNow}
+              isSearchDebouncing={claimSearch !== debouncedClaimSearch}
               setClaimDateFrom={setClaimDateFrom}
               setClaimDateTo={setClaimDateTo}
               setClaimFilterProgram={setClaimFilterProgram}
@@ -1243,6 +1198,13 @@ export default function Home() {
               openEditSale={openEditSale}
               setDeleteConfirm={setDeleteConfirm}
               setActiveTab={setActiveTab}
+            />
+
+            {/* ─── Export Tab ─────────────────────────── */}
+            <ExportTab
+              crews={mgmtCrews}
+              groups={groups}
+              isAdmin={isAdmin}
             />
 
             {/* ─── Management Tab ───────────────────────── */}

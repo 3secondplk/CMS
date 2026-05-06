@@ -17,7 +17,7 @@ import type { DashboardData } from '@/lib/cms-types'
 
 interface DashboardExportProps {
   dashboard: DashboardData
-  dashPeriod: 'today' | 'week' | 'month'
+  dashPeriod: string
 }
 
 /** Format a number as Rp currency string (plain, for clipboard text) */
@@ -26,9 +26,40 @@ function fmtRpText(n: number): string {
 }
 
 /** Build a formatted text summary from dashboard data */
-function buildSummaryText(dashboard: DashboardData, dashPeriod: 'today' | 'week' | 'month'): string {
+function buildSummaryText(dashboard: DashboardData, dashPeriod: string): string {
   const wib = getWIBDate()
   const dateStr = wib.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+  // Skip summary for achievement period
+  if (dashPeriod === 'achievement') {
+    const sorted = [...dashboard.crewStats].sort((a, b) => b.crewMonthlyAchievement - a.crewMonthlyAchievement)
+    const totalCrew = dashboard.crewStats.length
+    const topCrew = sorted[0]
+    const lines: string[] = [
+      '📊 CMS Crew Management System',
+      '📅 ' + dateStr,
+      '',
+      '🏆 Leaderboard Achievement Bulanan:',
+    ]
+    if (topCrew) {
+      lines.push(`  1. ${topCrew.name} — ${Math.round(topCrew.crewMonthlyAchievement)}% (${fmtRpText(topCrew.monthTotal)})`)
+    }
+    if (sorted.length > 1) {
+      lines.push(`  2. ${sorted[1].name} — ${Math.round(sorted[1].crewMonthlyAchievement)}% (${fmtRpText(sorted[1].monthTotal)})`)
+    }
+    if (sorted.length > 2) {
+      lines.push(`  3. ${sorted[2].name} — ${Math.round(sorted[2].crewMonthlyAchievement)}% (${fmtRpText(sorted[2].monthTotal)})`)
+    }
+    lines.push(``, `👥 Total Crew Aktif: ${totalCrew}`)
+    if (dashboard.groupAchievements.length > 0) {
+      lines.push('', '🏢 Group Achievement:')
+      for (const group of dashboard.groupAchievements) {
+        const pct = Math.round(group.monthlyAchievement)
+        lines.push(`  • ${group.name}: ${pct}% dari target ${fmtRpText(group.monthlyTarget)}`)
+      }
+    }
+    return lines.join('\n')
+  }
 
   const periodLabel =
     dashPeriod === 'today' ? 'Hari Ini' : dashPeriod === 'week' ? 'Minggu Ini' : 'Bulan Ini'
@@ -39,7 +70,9 @@ function buildSummaryText(dashboard: DashboardData, dashPeriod: 'today' | 'week'
 
   const totalCrew = dashboard.crewStats.length
 
-  const topCrew = dashboard.topCrews[0]
+  const topCrew = dashPeriod === 'achievement'
+    ? [...dashboard.crewStats].sort((a, b) => b.crewMonthlyAchievement - a.crewMonthlyAchievement)[0]
+    : dashboard.topCrews[0]
 
   const lines: string[] = [
     '📊 CMS Crew Management System',
@@ -52,15 +85,15 @@ function buildSummaryText(dashboard: DashboardData, dashPeriod: 'today' | 'week'
 
   if (topCrew) {
     const topVal =
-      dashPeriod === 'today' ? topCrew.todayTotal : dashPeriod === 'week' ? topCrew.weekTotal : topCrew.monthTotal
-    lines.push('🏆 Top Performer: ' + topCrew.name + ' (' + fmtRpText(topVal) + ')')
+      dashPeriod === 'achievement' ? topCrew.crewMonthlyAchievement : dashPeriod === 'today' ? topCrew.todayTotal : dashPeriod === 'week' ? topCrew.weekTotal : topCrew.monthTotal
+    lines.push('🏆 Top Performer: ' + topCrew.name + (dashPeriod === 'achievement' ? ` (${Math.round(topVal)}% achievement)` : ' (' + fmtRpText(topVal) + ')'))
   } else {
     lines.push('🏆 Top Performer: Belum ada data')
   }
 
   lines.push('')
 
-  if (dashboard.topCrews.length > 0) {
+  if (dashboard.topCrews.length > 0 && dashPeriod !== 'achievement') {
     lines.push('📌 Top 3 Leaderboard:')
     for (let i = 0; i < Math.min(3, dashboard.topCrews.length); i++) {
       const crew = dashboard.topCrews[i]
@@ -68,6 +101,14 @@ function buildSummaryText(dashboard: DashboardData, dashPeriod: 'today' | 'week'
         dashPeriod === 'today' ? crew.todayTotal : dashPeriod === 'week' ? crew.weekTotal : crew.monthTotal
       const rankLabel = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'
       lines.push(rankLabel + ' ' + (i + 1) + '. ' + crew.name + ' - ' + fmtRpText(val))
+    }
+  } else if (dashPeriod === 'achievement') {
+    const sorted = [...dashboard.crewStats].sort((a, b) => b.crewMonthlyAchievement - a.crewMonthlyAchievement)
+    lines.push('📌 Top 3 Achievement:')
+    for (let i = 0; i < Math.min(3, sorted.length); i++) {
+      const crew = sorted[i]
+      const rankLabel = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'
+      lines.push(rankLabel + ' ' + (i + 1) + '. ' + crew.name + ' - ' + Math.round(crew.crewMonthlyAchievement) + '% (' + fmtRpText(crew.monthTotal) + ')')
     }
   } else {
     lines.push('📌 Top 3 Leaderboard: Belum ada data')

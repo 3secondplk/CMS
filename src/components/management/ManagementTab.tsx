@@ -14,12 +14,13 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { toast } from 'sonner'
-import { Shield, Users, Target, DollarSign, Plus, Trash2, Edit2, Search, X, BarChart3, Download, Upload, Database, Loader2, CheckCircle2, Lock, ArrowUpDown, Sparkles, FileJson, CalendarDays, UserPlus, FolderOpen, FileSpreadsheet, Settings, Zap, Clock, RefreshCw } from 'lucide-react'
+import { Shield, Users, Target, DollarSign, Plus, Trash2, Edit2, Search, X, BarChart3, Download, Upload, Database, Loader2, CheckCircle2, Lock, ArrowUpDown, Sparkles, FileJson, CalendarDays, UserPlus, FolderOpen, FileSpreadsheet, Settings, Zap, Clock, RefreshCw, FileBarChart } from 'lucide-react'
 import { fmtRp, fmtNum, fadeIn, stagger, safeFetch, getWIBDate, timeAgo } from '@/lib/cms-utils'
 import type { Group, Crew } from '@/lib/cms-types'
 import CrewForm from '@/components/management/CrewForm'
 import GroupForm from '@/components/management/GroupForm'
 import ActivityLogPanel from '@/components/management/ActivityLogPanel'
+import ManagementReport from '@/components/management/ManagementReport'
 import SettingsPanel from '@/components/management/SettingsPanel'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 
@@ -430,6 +431,7 @@ const ManagementTab = React.memo(function ManagementTab({
             <TabsList className="bg-muted/80 backdrop-blur-sm rounded-xl p-1">
               <TabsTrigger value="crews" className="rounded-lg data-[state=active]:bg-[#E14227] data-[state=active]:text-white transition-all"><Users className="w-4 h-4 mr-2" />Crew</TabsTrigger>
               <TabsTrigger value="groups" className="rounded-lg data-[state=active]:bg-[#E14227] data-[state=active]:text-white transition-all"><Target className="w-4 h-4 mr-2" />Group / Zoning</TabsTrigger>
+              <TabsTrigger value="report" className="rounded-lg data-[state=active]:bg-[#E14227] data-[state=active]:text-white transition-all"><FileBarChart className="w-4 h-4 mr-2" />Laporan</TabsTrigger>
               <TabsTrigger value="settings" className="rounded-lg data-[state=active]:bg-[#E14227] data-[state=active]:text-white transition-all"><Settings className="w-4 h-4 mr-2" />Pengaturan</TabsTrigger>
             </TabsList>
 
@@ -857,6 +859,13 @@ const ManagementTab = React.memo(function ManagementTab({
                 </Dialog>
               </motion.div>
             </TabsContent>
+            {/* ═══════════════════════════════════════════════════
+                LAPORAN (REPORT) TAB
+                ═══════════════════════════════════════════════════ */}
+            <TabsContent value="report" className="mt-4">
+              <ManagementReport crews={mgmtCrews} groups={groups} isAdmin={isAdmin} />
+            </TabsContent>
+
             {/* ═══════════════════════════════════════════════════
                 SETTINGS TAB
                 ═══════════════════════════════════════════════════ */}
