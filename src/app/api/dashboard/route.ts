@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { Prisma } from '@prisma/client'
 import { requireAuth } from '@/lib/auth'
 
 // GET /api/dashboard/group-detail?groupId=xxx&period=daily
@@ -34,7 +33,6 @@ export async function GET(request: NextRequest) {
 
     // Determine date range based on period
     let prismaDateFilter: Record<string, unknown>
-    let sqlDateCondition: Prisma.Sql
     let periodLabel: string
 
     // Calculate week range for weekly period
@@ -55,22 +53,18 @@ export async function GET(request: NextRequest) {
     switch (period) {
       case 'daily':
         prismaDateFilter = { startsWith: todayStr }
-        sqlDateCondition = Prisma.sql`AND "tanggal" LIKE ${todayStr + '%'}`
         periodLabel = `${dayOfMonth} ${shortMonths[currentMonth]} ${currentYear}`
         break
       case 'weekly':
         prismaDateFilter = { gte: weekStartStr, lt: weekEndNextDayStr }
-        sqlDateCondition = Prisma.sql`AND "tanggal" >= ${weekStartStr} AND "tanggal" < ${weekEndNextDayStr}`
         periodLabel = `Minggu ${currentWeek} (${weekStart}–${weekEnd})`
         break
       case 'monthly':
         prismaDateFilter = { startsWith: monthPrefix }
-        sqlDateCondition = Prisma.sql`AND "tanggal" LIKE ${monthPrefix + '%'}`
         periodLabel = `${monthNames[currentMonth]} ${currentYear}`
         break
       default:
         prismaDateFilter = { startsWith: todayStr }
-        sqlDateCondition = Prisma.sql`AND "tanggal" LIKE ${todayStr + '%'}`
         periodLabel = todayStr
     }
 
@@ -105,25 +99,29 @@ export async function GET(request: NextRequest) {
     }
 
     // Parallel queries: settle/qty aggregation + struk count per crew
-    const [aggResult, strukResult] = await Promise.all([
+    const [aggResult, strukAggResult] = await Promise.all([
       db.sale.groupBy({
         by: ['crewId'],
         where: { crewId: { in: crewIds }, tanggal: prismaDateFilter },
         _sum: { settle: true, qty: true },
         _count: true,
       }),
-      // Count unique idPenjualan (transaction/receipt IDs) per crew
-      // Quoted identifiers for PostgreSQL compatibility
-      db.$queryRaw<Array<{ crewId: string; count: number }>>`
-        SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
-        FROM "Sale"
-        WHERE "crewId" IN (${Prisma.join(crewIds)}) AND "idPenjualan" IS NOT NULL ${sqlDateCondition}
-        GROUP BY "crewId"
-      `,
+      // Count unique idPenjualan (transaction/receipt IDs) per crew using groupBy
+      db.sale.groupBy({
+        by: ['crewId', 'idPenjualan'],
+        where: { crewId: { in: crewIds }, tanggal: prismaDateFilter, idPenjualan: { not: null } },
+        _count: true,
+      }),
     ])
 
     const aggMap = new Map(aggResult.map(a => [a.crewId, a]))
-    const strukMap = new Map(strukResult.map(r => [r.crewId, Number(r.count)]))
+    // Build struk map: count distinct idPenjualan per crew
+    const strukMap = new Map<string, number>()
+    for (const row of strukAggResult) {
+      if (row.idPenjualan) {
+        strukMap.set(row.crewId, (strukMap.get(row.crewId) ?? 0) + 1)
+      }
+    }
 
     // Build crew stats
     // ── Per-crew target calculation ──
