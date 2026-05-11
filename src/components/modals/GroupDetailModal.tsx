@@ -233,6 +233,27 @@ export default function GroupDetailModal({
                                   />
                                 </div>
                               )}
+                              {/* Per-week achievements mini bars */}
+                              {c.crewWeeklyDetails && c.crewWeeklyDetails.length > 0 && (
+                                <div className="mt-1.5 grid grid-cols-4 gap-1">
+                                  {c.crewWeeklyDetails.map((wd) => {
+                                    const isCurrentWeek = wd.week === groupDetailData.currentWeek
+                                    return (
+                                      <div key={wd.week} className="text-center">
+                                        <div className="h-1 bg-muted/60 rounded-full overflow-hidden">
+                                          <div
+                                            className={`h-full rounded-full ${isCurrentWeek ? 'bg-gradient-to-r from-[#E14227] to-[#D4956B]' : wd.achievement >= 100 ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`}
+                                            style={{ width: `${Math.min(wd.achievement, 100)}%` }}
+                                          />
+                                        </div>
+                                        <p className={`text-[7px] font-semibold mt-0.5 ${isCurrentWeek ? 'text-[#E14227]' : 'text-muted-foreground'}`}>
+                                          W{wd.week} {wd.achievement}%
+                                        </p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
                             </motion.div>
                           )
                         })}
@@ -392,6 +413,7 @@ export default function GroupDetailModal({
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Penjualan</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Target</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Achievement</TableHead>
+                                <TableHead className="text-[10px] uppercase tracking-wider text-center">Weekly</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Qty</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Struk</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Basket</TableHead>
@@ -425,6 +447,30 @@ export default function GroupDetailModal({
                                     <TableCell className="text-right text-xs tabular-nums text-muted-foreground">{fmtRp(c.crewMonthlyTarget)}</TableCell>
                                     <TableCell className="text-right">
                                       <span className={`text-xs font-bold ${aColor.text}`}>{c.crewMonthlyAchievement}%</span>
+                                    </TableCell>
+                                    <TableCell>
+                                      {c.crewWeeklyDetails && c.crewWeeklyDetails.length > 0 ? (
+                                        <div className="flex items-center gap-1.5">
+                                          {c.crewWeeklyDetails.map((wd) => {
+                                            const isCurrentWeek = wd.week === groupDetailData.currentWeek
+                                            return (
+                                              <div key={wd.week} className="text-center min-w-[32px]">
+                                                <div className="h-1 bg-muted/60 rounded-full overflow-hidden mb-0.5">
+                                                  <div
+                                                    className={`h-full rounded-full ${isCurrentWeek ? 'bg-gradient-to-r from-[#E14227] to-[#D4956B]' : wd.achievement >= 100 ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`}
+                                                    style={{ width: `${Math.min(wd.achievement, 100)}%` }}
+                                                  />
+                                                </div>
+                                                <p className={`text-[8px] font-semibold ${isCurrentWeek ? 'text-[#E14227]' : 'text-muted-foreground'}`}>
+                                                  W{wd.week} {wd.achievement}%
+                                                </p>
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <span className="text-[10px] text-muted-foreground">—</span>
+                                      )}
                                     </TableCell>
                                     <TableCell className="text-right text-xs font-medium tabular-nums">{fmtNum(c.totalQty)}</TableCell>
                                     <TableCell className="text-right text-xs tabular-nums text-muted-foreground">{fmtNum(c.totalStruk)}</TableCell>
@@ -483,6 +529,27 @@ export default function GroupDetailModal({
                                         transition={{ duration: 0.6, delay: idx * 0.05 }}
                                         className={`h-full rounded-full ${aColor.bar}`}
                                       />
+                                    </div>
+                                  )}
+                                  {/* Per-week achievements mini bars */}
+                                  {c.crewWeeklyDetails && c.crewWeeklyDetails.length > 0 && (
+                                    <div className="mt-1.5 grid grid-cols-4 gap-1">
+                                      {c.crewWeeklyDetails.map((wd) => {
+                                        const isCurrentWeek = wd.week === groupDetailData.currentWeek
+                                        return (
+                                          <div key={wd.week} className="text-center">
+                                            <div className="h-1 bg-muted/60 rounded-full overflow-hidden">
+                                              <div
+                                                className={`h-full rounded-full ${isCurrentWeek ? 'bg-gradient-to-r from-[#E14227] to-[#D4956B]' : wd.achievement >= 100 ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`}
+                                                style={{ width: `${Math.min(wd.achievement, 100)}%` }}
+                                              />
+                                            </div>
+                                            <p className={`text-[7px] font-semibold mt-0.5 ${isCurrentWeek ? 'text-[#E14227]' : 'text-muted-foreground'}`}>
+                                              W{wd.week} {wd.achievement}%
+                                            </p>
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   )}
                                 </div>

@@ -195,45 +195,44 @@ export default function CrewDetailPanel({ selectedCrewDetail, setSelectedCrewDet
                     </p>
                   </div>
 
-                  {/* Weekly Targets Grid */}
+                  {/* Weekly Targets Grid — All 4 weeks with per-week achievement */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-1.5">
                       <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="text-xs font-medium">Target Mingguan</span>
                     </div>
                     <div className="grid grid-cols-4 gap-2">
-                      {crew.crewWeeklyTargets.map((target, i) => {
-                        const isCurrentWeek = (i + 1) === crew.currentWeek
-                        const weekAchievement = target > 0 ? Math.round((crew.weekTotal / target) * 100) : 0
-                        const wColor = getAchievementColor(isCurrentWeek ? crew.crewWeeklyAchievement : weekAchievement)
+                      {crew.crewWeeklyDetails?.map((wd) => {
+                        const isCurrentWeek = wd.week === crew.currentWeek
+                        const wColor = getAchievementColor(wd.achievement)
 
                         return (
                           <motion.div
-                            key={i}
+                            key={wd.week}
                             whileHover={{ y: -1 }}
                             className={"text-center p-1.5 sm:p-2 rounded-lg border transition-colors overflow-hidden min-w-0 " + (
                               isCurrentWeek
                                 ? `${wColor.bg} ${wColor.ring} ring-1`
-                                : 'bg-white dark:bg-gray-800 border-border/50'
+                                : wd.achievement >= 100
+                                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                                  : 'bg-white dark:bg-gray-800 border-border/50'
                             )}
                           >
-                            <p className="text-[9px] text-muted-foreground font-medium">{"W" + (i + 1)}</p>
-                            <p className={`text-[10px] sm:text-xs font-bold tabular-nums truncate`}>{fmtRp(target)}</p>
-                            {isCurrentWeek && (
-                              <p className={`text-[9px] font-bold ${wColor.text}`}>
-                                {crew.crewWeeklyAchievement}%
-                              </p>
-                            )}
-                            {isCurrentWeek && (
-                              <div className="mt-1 h-1 bg-muted rounded-full overflow-hidden">
-                                <motion.div
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${Math.min(crew.crewWeeklyAchievement, 100)}%` }}
-                                  transition={{ duration: 0.6, delay: 0.3 }}
-                                  className={`h-full rounded-full bg-gradient-to-r ${wColor.gradient}`}
-                                />
-                              </div>
-                            )}
+                            <p className="text-[9px] text-muted-foreground font-medium">W{wd.week}</p>
+                            <p className="text-[10px] sm:text-xs font-bold tabular-nums truncate">{fmtRp(wd.target)}</p>
+                            <p className={`text-[9px] font-bold ${isCurrentWeek ? wColor.text : wd.achievement >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                              {wd.achievement}%
+                            </p>
+                            <div className="mt-1 h-1 bg-muted rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${Math.min(wd.achievement, 100)}%` }}
+                                transition={{ duration: 0.6, delay: wd.week * 0.1 }}
+                                className={`h-full rounded-full ${isCurrentWeek ? `bg-gradient-to-r ${wColor.gradient}` : wd.achievement >= 100 ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`}
+                              />
+                            </div>
+                            <p className="text-[8px] text-muted-foreground mt-0.5 tabular-nums truncate">{fmtRp(wd.total)}</p>
+                            <p className="text-[7px] text-muted-foreground/60">tgl {wd.dateFrom}-{wd.dateTo}</p>
                           </motion.div>
                         )
                       })}
