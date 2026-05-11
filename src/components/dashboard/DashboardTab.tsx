@@ -1029,15 +1029,21 @@ const DashboardTab = React.memo(function DashboardTab({
                                   <span><Users className="w-2.5 h-2.5 inline mr-0.5" />{g.crewCount}</span>
                                   <span className="truncate font-semibold text-foreground">{fmtRp(g.monthlyTotal)}</span>
                                 </div>
-                                {/* Weekly progress inline */}
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1 h-1.5 bg-muted/80 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full rounded-full bg-gradient-to-r from-[#E14227] to-[#D4956B] transition-all duration-700"
-                                      style={{ width: `${Math.min(g.weeklyAchievement, 100)}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-[9px] font-semibold text-muted-foreground tabular-nums shrink-0">W{g.currentWeek} {Math.round(g.weeklyAchievement)}%</span>
+                                {/* All 4 weekly progress bars */}
+                                <div className="grid grid-cols-4 gap-1">
+                                  {g.weeklyDetails?.map((wd) => (
+                                    <div key={wd.week} className="text-center">
+                                      <div className="h-1 bg-muted/80 rounded-full overflow-hidden mb-0.5">
+                                        <div
+                                          className={`h-full rounded-full transition-all duration-700 ${wd.week === g.currentWeek ? 'bg-gradient-to-r from-[#E14227] to-[#D4956B]' : wd.achievement >= 100 ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`}
+                                          style={{ width: `${Math.min(wd.achievement, 100)}%` }}
+                                        />
+                                      </div>
+                                      <span className={`text-[8px] font-semibold tabular-nums ${wd.week === g.currentWeek ? 'text-[#E14227]' : 'text-muted-foreground'}`}>
+                                        W{wd.week}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
                             </div>
@@ -1081,12 +1087,23 @@ const DashboardTab = React.memo(function DashboardTab({
                                   <p className="text-[10px] text-muted-foreground">Target: {fmtRp(g.monthlyTarget)}</p>
                                 </div>
                               </div>
-                              <div className="space-y-1">
-                                <div className="flex justify-between items-center">
-                                  <p className="text-[10px] text-muted-foreground">W{g.currentWeek} ({g.weekTargetPct}%)</p>
-                                  <p className="text-[10px] font-semibold">{Math.round(g.weeklyAchievement)}%</p>
-                                </div>
-                                <Progress value={Math.min(g.weeklyAchievement, 100)} className="h-1.5" />
+                              <div className="space-y-1.5">
+                                {g.weeklyDetails?.map((wd) => (
+                                  <div key={wd.week} className="space-y-0.5">
+                                    <div className="flex justify-between items-center">
+                                      <p className={`text-[10px] ${wd.week === g.currentWeek ? 'font-semibold text-[#E14227]' : 'text-muted-foreground'}`}>
+                                        W{wd.week} ({wd.targetPct}%) tgl {wd.dateFrom}-{wd.dateTo}
+                                      </p>
+                                      <p className={`text-[10px] font-semibold ${wd.achievement >= 100 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+                                        {wd.achievement}%
+                                      </p>
+                                    </div>
+                                    <Progress
+                                      value={Math.min(wd.achievement, 100)}
+                                      className={`h-1.5 ${wd.week === g.currentWeek ? '[&>div]:bg-gradient-to-r [&>div]:from-[#E14227] [&>div]:to-[#D4956B]' : ''}`}
+                                    />
+                                  </div>
+                                ))}
                               </div>
                               <div className="mt-3 pt-2 border-t border-border/30 flex items-center justify-center gap-1 text-[10px] text-muted-foreground opacity-60">
                                 <Eye className="w-3 h-3" />
@@ -1132,18 +1149,31 @@ const DashboardTab = React.memo(function DashboardTab({
                                   </div>
                                 </div>
                               </div>
-                              {/* Weekly Achievement */}
-                              <div className="space-y-1.5">
-                                <div className="flex justify-between items-center">
-                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                                    Minggu {g.currentWeek} ({g.weekTargetPct}%)
-                                  </p>
-                                  <p className="text-xs font-semibold">{Math.round(g.weeklyAchievement)}%</p>
-                                </div>
-                                <Progress value={Math.min(g.weeklyAchievement, 100)} className="h-2" />
-                                <p className="text-xs text-muted-foreground">
-                                  {fmtRp(g.weeklyTotal)} / {fmtRp(g.weeklyTarget)}
-                                </p>
+                              {/* All 4 Weekly Achievements */}
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Achievement per Minggu</p>
+                                {g.weeklyDetails?.map((wd) => (
+                                  <div key={wd.week} className="space-y-0.5">
+                                    <div className="flex justify-between items-center">
+                                      <p className={`text-[10px] ${wd.week === g.currentWeek ? 'font-semibold text-[#E14227] dark:text-[#F07050]' : 'text-muted-foreground'}`}>
+                                        Minggu {wd.week} ({wd.targetPct}%) · tgl {wd.dateFrom}-{wd.dateTo}
+                                        {wd.week === g.currentWeek && <span className="ml-1 text-[8px] bg-[#E14227]/10 text-[#E14227] px-1 py-0.5 rounded">Sekarang</span>}
+                                      </p>
+                                      <p className={`text-[10px] font-semibold tabular-nums ${wd.achievement >= 100 ? 'text-emerald-600 dark:text-emerald-400' : wd.week === g.currentWeek ? 'text-[#E14227] dark:text-[#F07050]' : ''}`}>
+                                        {wd.achievement}%
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Progress
+                                        value={Math.min(wd.achievement, 100)}
+                                        className={`h-2 flex-1 ${wd.week === g.currentWeek ? '[&>div]:bg-gradient-to-r [&>div]:from-[#E14227] [&>div]:to-[#D4956B]' : wd.achievement >= 100 ? '[&>div]:bg-emerald-400' : ''}`}
+                                      />
+                                    </div>
+                                    <p className="text-[9px] text-muted-foreground tabular-nums">
+                                      {fmtRp(wd.total)} / {fmtRp(wd.target)}
+                                    </p>
+                                  </div>
+                                ))}
                               </div>
                               {/* Monthly progress bar */}
                               <div className="mt-2">

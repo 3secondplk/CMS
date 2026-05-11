@@ -323,6 +323,41 @@ export async function GET(request: NextRequest) {
       month: calcTrend(importedMonthAgg._sum.settle ?? 0, lastMonthAgg._sum.settle),
     }
 
+    // Calculate per-week date ranges for all 4 weeks
+    const weekRanges = [1, 2, 3, 4].map(w => {
+      const start = (w - 1) * 7 + 1
+      const end = w === 4 ? daysInMonth : Math.min(w * 7, daysInMonth)
+      const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
+      const endNextDay = new Date(currentYear, currentMonth, end + 1)
+      const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
+      return { week: w, start, end, startStr, endNextDayStr }
+    })
+
+    // Query per-week aggregation for ALL groups' crews (4 parallel queries)
+    const [week1Agg, week2Agg, week3Agg, week4Agg] = await Promise.all([
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[0].startStr, lt: weekRanges[0].endNextDayStr } },
+        _sum: { settle: true },
+      }),
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[1].startStr, lt: weekRanges[1].endNextDayStr } },
+        _sum: { settle: true },
+      }),
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[2].startStr, lt: weekRanges[2].endNextDayStr } },
+        _sum: { settle: true },
+      }),
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[3].startStr, lt: weekRanges[3].endNextDayStr } },
+        _sum: { settle: true },
+      }),
+    ])
+    const weekAggMaps = [week1Agg, week2Agg, week3Agg, week4Agg].map(agg => new Map(agg.map(a => [a.crewId, a._sum.settle ?? 0])))
+
     // Group/Zoning achievements — use actual weekly data from weekMap
     const groupAchievements = groups.map(group => {
       const groupMonthTotal = group.crews.reduce((sum, c) => sum + (monthMap.get(c.id)?._sum.settle ?? 0), 0)
@@ -351,6 +386,23 @@ export async function GET(request: NextRequest) {
       const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target]
       const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
 
+      // Per-week achievements (all 4 weeks)
+      const weeklyDetails = weekRanges.map((wr, i) => {
+        const targetPct = weeklyTargetPcts[i]
+        const weekTarget = group.monthlyTarget * (targetPct / 100)
+        const weekTotal = group.crews.reduce((sum, c) => sum + (weekAggMaps[i].get(c.id) ?? 0), 0)
+        const achievement = weekTarget > 0 ? Math.min(Math.round((weekTotal / weekTarget) * 100), 999) : 0
+        return {
+          week: wr.week,
+          targetPct,
+          target: Math.round(weekTarget),
+          total: weekTotal,
+          achievement,
+          dateFrom: wr.start,
+          dateTo: wr.end,
+        }
+      })
+
       return {
         id: group.id,
         name: group.name,
@@ -367,6 +419,7 @@ export async function GET(request: NextRequest) {
         crewMonthlyTarget,
         weeklyTargetPcts,
         crewWeeklyTargets,
+        weeklyDetails,
       }
     })
 

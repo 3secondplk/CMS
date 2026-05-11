@@ -29,6 +29,16 @@ export interface GroupAchievement {
   crewMonthlyTarget: number // monthlyTarget / crewCount
   weeklyTargetPcts: number[] // [W1%, W2%, W3%, W4%]
   crewWeeklyTargets: number[] // [W1, W2, W3, W4] per-crew amounts
+  // Per-week achievements (all 4 weeks)
+  weeklyDetails: Array<{
+    week: number // 1-4
+    targetPct: number // e.g. 25 means 25%
+    target: number // actual Rp target for this group
+    total: number // actual sales Rp for this week
+    achievement: number // percentage achieved
+    dateFrom: number // start day of month
+    dateTo: number // end day of month
+  }>
 }
 
 export interface RecentSale {
