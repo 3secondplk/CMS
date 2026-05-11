@@ -133,6 +133,43 @@ export async function GET(request: NextRequest) {
     const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
     const crewCurrentWeekTarget = crewWeeklyTargets[currentWeek - 1] ?? 0
 
+    // Calculate per-week date ranges for all 4 weeks
+    const weekRanges = [1, 2, 3, 4].map(w => {
+      const start = (w - 1) * 7 + 1
+      const end = w === 4 ? daysInMonth : Math.min(w * 7, daysInMonth)
+      const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
+      const endNextDay = new Date(currentYear, currentMonth, end + 1)
+      const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
+      return { week: w, start, end, startStr, endNextDayStr }
+    })
+
+    // Query per-week aggregation for each crew in this group (4 parallel queries)
+    const [week1Agg, week2Agg, week3Agg, week4Agg] = crewIds.length > 0
+      ? await Promise.all([
+          db.sale.groupBy({
+            by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[0].startStr, lt: weekRanges[0].endNextDayStr } },
+            _sum: { settle: true },
+          }),
+          db.sale.groupBy({
+            by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[1].startStr, lt: weekRanges[1].endNextDayStr } },
+            _sum: { settle: true },
+          }),
+          db.sale.groupBy({
+            by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[2].startStr, lt: weekRanges[2].endNextDayStr } },
+            _sum: { settle: true },
+          }),
+          db.sale.groupBy({
+            by: ['crewId'],
+            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[3].startStr, lt: weekRanges[3].endNextDayStr } },
+            _sum: { settle: true },
+          }),
+        ])
+      : [[], [], [], []]
+    const weekAggMaps = [week1Agg, week2Agg, week3Agg, week4Agg].map(agg => new Map(agg.map(a => [a.crewId, a._sum.settle ?? 0])))
+
     const crews = group.crews.map(crew => {
       const agg = aggMap.get(crew.id)
       const struk = strukMap.get(crew.id) ?? 0
@@ -144,6 +181,22 @@ export async function GET(request: NextRequest) {
       // Achievement: compare period settle against period target
       const monthAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((settle / crewMonthlyTarget) * 100), 999) : 0
       const weekAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((settle / crewCurrentWeekTarget) * 100), 999) : 0
+
+      // Per-week achievements for this crew (all 4 weeks)
+      const crewWeeklyDetails = weekRanges.map((wr, i) => {
+        const weekTarget = crewWeeklyTargets[i]
+        const weekTotalForCrew = weekAggMaps[i].get(crew.id) ?? 0
+        const achievement = weekTarget > 0 ? Math.min(Math.round((weekTotalForCrew / weekTarget) * 100), 999) : 0
+        return {
+          week: wr.week,
+          targetPct: weeklyTargetPcts[i],
+          target: weekTarget,
+          total: weekTotalForCrew,
+          achievement,
+          dateFrom: wr.start,
+          dateTo: wr.end,
+        }
+      })
 
       return {
         id: crew.id,
@@ -160,6 +213,7 @@ export async function GET(request: NextRequest) {
         crewCurrentWeekTarget,
         crewMonthlyAchievement: monthAchievement,
         crewWeeklyAchievement: weekAchievement,
+        crewWeeklyDetails,
       }
     })
 
