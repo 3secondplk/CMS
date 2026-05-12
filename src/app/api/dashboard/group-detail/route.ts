@@ -178,9 +178,14 @@ export async function GET(request: NextRequest) {
       const basketSize = struk > 0 ? qty / struk : 0
       const pricePoint = qty > 0 ? settle / qty : 0
 
-      // Achievement: compare period settle against period target
-      const monthAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((settle / crewMonthlyTarget) * 100), 999) : 0
-      const weekAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((settle / crewCurrentWeekTarget) * 100), 999) : 0
+      // Calculate monthly total from week aggregations (always current month, regardless of selected period)
+      const monthlySettle = weekAggMaps.reduce((sum, wMap) => sum + (wMap.get(crew.id) ?? 0), 0)
+      // Current week total (always from week aggregation, not period filter)
+      const currentWeekSettle = weekAggMaps[currentWeek - 1]?.get(crew.id) ?? 0
+
+      // Achievement: ALWAYS compare against correct period totals (not affected by selected period filter)
+      const monthAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((monthlySettle / crewMonthlyTarget) * 100), 999) : 0
+      const weekAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((currentWeekSettle / crewCurrentWeekTarget) * 100), 999) : 0
 
       // Per-week achievements for this crew (all 4 weeks)
       const crewWeeklyDetails = weekRanges.map((wr, i) => {
