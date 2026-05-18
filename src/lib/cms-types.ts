@@ -1,7 +1,7 @@
 // ─── CMS Crew Management System — Shared Types ─────────
 
 export interface CrewStat {
-  id: string; name: string; photo: string | null; employeeId: string
+  id: string; name: string; label: string; photo: string | null; employeeId: string
   groupId: string; groupName: string; groupLogo: string | null
   todayTotal: number; todayQty: number; todayStruk: number
   weekTotal: number; weekQty: number; weekStruk: number
@@ -53,7 +53,7 @@ export interface GroupAchievement {
 
 export interface RecentSale {
   id: string; tanggal: string; kodeExtend: string; qty: number; settle: number
-  crew: { name: string; photo: string | null; group: { name: string } }
+  crew: { name: string; label: string; photo: string | null; group: { name: string } }
 }
 
 export interface TrendData {
@@ -78,7 +78,7 @@ export interface DashboardData {
 }
 
 export interface Crew {
-  id: string; name: string; photo: string | null; employeeId: string; groupId: string
+  id: string; name: string; label: string; photo: string | null; employeeId: string; groupId: string
   group: { id: string; name: string }; totalSales: number; totalQty: number; todaySales: number; transactionCount: number
 }
 
@@ -97,14 +97,16 @@ export interface ClaimSale {
 }
 
 export interface GroupDetailCrew {
-  id: string; name: string; photo: string | null; employeeId: string
+  id: string; name: string; label: string; photo: string | null; employeeId: string
   totalQty: number; totalSettle: number; totalStruk: number
   basketSize: number; pricePoint: number; itemCount: number
   // Target info
   crewMonthlyTarget: number
   crewCurrentWeekTarget: number
+  crewDailyTarget: number
   crewMonthlyAchievement: number
   crewWeeklyAchievement: number
+  crewDailyAchievement: number
   // Per-week achievements (all 4 weeks)
   crewWeeklyDetails: Array<{
     week: number
@@ -146,8 +148,69 @@ export interface ClaimFilters {
 
 /** Delete confirmation dialog state */
 export interface DeleteConfirmState {
-  type: 'crew' | 'group' | 'sale' | 'batch-sale'
+  type: 'crew' | 'group' | 'sale' | 'batch-sale' | 'jobdesk'
   ids?: string[]
   id?: string
   name: string
+}
+
+// ─── Jobdesk Types ─────────────────────────────────────
+
+export interface Jobdesk {
+  id: string
+  groupId: string
+  crewId: string | null
+  title: string
+  description: string | null
+  status: 'pending' | 'in_progress' | 'completed'
+  priority: 'low' | 'medium' | 'high'
+  verificationPercent: number
+  verifiedByAdminId: string | null
+  notes: string | null
+  jobDate: string
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+  group: { id: string; name: string; logo: string | null }
+  crew: { id: string; name: string; label: string; photo: string | null; employeeId: string } | null
+  verifiedByAdmin: { id: string; name: string } | null
+}
+
+export interface JobdeskSummary {
+  total: number
+  completed: number
+  pending: number
+  inProgress: number
+  avgVerification: number
+}
+
+export interface JobdeskGroupStat {
+  groupId: string
+  groupName: string
+  groupLogo: string | null
+  crewCount: number
+  crews: Array<{ id: string; name: string; label: string; photo: string | null }>
+  total: number
+  completed: number
+  inProgress: number
+  pending: number
+  avgVerification: number
+}
+
+export interface ShiftSetting {
+  id: string
+  shiftName: string
+  shiftStart: string
+  shiftEnd: string
+  timezone: string
+}
+
+export interface CalendarDayData {
+  date: string
+  total: number
+  completed: number
+  inProgress: number
+  pending: number
+  avgVerification: number
+  jobdesks: Jobdesk[]
 }

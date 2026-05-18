@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────
-// CMS Crew Management System — Prisma Schema (SQLite)
+// CMS Crew Management System — Prisma Schema (PostgreSQL)
 // Developer: Ahtjong Labs
 // ─────────────────────────────────────────────────────────
 
@@ -17,34 +17,42 @@ model Admin {
   username  String   @unique
   password  String
   name      String   @default("Admin")
+  jobdeskVerifications Jobdesk[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Group {
-  id             String  @id @default(cuid())
+  id             String    @id @default(cuid())
   name           String
   logo           String?
-  monthlyTarget  Float   @default(0)
-  week1Target    Float   @default(0)
-  week2Target    Float   @default(0)
-  week3Target    Float   @default(0)
-  week4Target    Float   @default(0)
+  monthlyTarget  Float     @default(0)
+  week1Target    Float     @default(0)
+  week2Target    Float     @default(0)
+  week3Target    Float     @default(0)
+  week4Target    Float     @default(0)
   crews          Crew[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  jobdesks       Jobdesk[]
+  jobdeskTemplates JobdeskTemplate[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model Crew {
-  id         String  @id @default(cuid())
+  id         String    @id @default(cuid())
   name       String
+  label      String    @default("")
   photo      String?
-  employeeId String  @unique
+  employeeId String    @unique
   groupId    String
-  group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sales      Sale[]
-  createdAt  DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  jobdesks   Jobdesk[]
+  jobdeskTemplates JobdeskTemplate[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([groupId])
 }
 
 model Sale {
@@ -73,6 +81,12 @@ model Sale {
   channelStock     String?
   claimedAt        DateTime?
   createdAt        DateTime @default(now())
+
+  @@index([tanggal])
+  @@index([kodeExtend])
+  @@index([crewId])
+  @@index([claimedAt])
+  @@index([brand])
 }
 
 model ActivityLog {
@@ -83,4 +97,60 @@ model ActivityLog {
   saleId      String?
   metadata    String?
   createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ─── Jobdesk / Daily Task Management ─────────────────────
+
+model ShiftSetting {
+  id        String   @id @default(cuid())
+  shiftName String   @default("Default Shift")
+  shiftStart String  @default("08:00")
+  shiftEnd   String  @default("17:00")
+  timezone   String   @default("Asia/Jakarta")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Jobdesk {
+  id                 String    @id @default(cuid())
+  groupId            String
+  group              Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  crewId             String?
+  crew               Crew?     @relation(fields: [crewId], references: [id], onDelete: SetNull)
+  title              String
+  description        String?
+  status             String    @default("pending") // pending, in_progress, completed
+  priority           String    @default("medium") // low, medium, high
+  verificationPercent Int      @default(0)
+  verifiedByAdminId  String?
+  verifiedByAdmin    Admin?    @relation(fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
+  notes              String?
+  jobDate            String    // YYYY-MM-DD in WIB (UTC+7)
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([groupId])
+  @@index([jobDate])
+  @@index([status])
+  @@index([crewId])
+}
+
+model JobdeskTemplate {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  priority    String   @default("medium") // low, medium, high
+  groupId     String
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  crewId      String?
+  crew        Crew?    @relation(fields: [crewId], references: [id], onDelete: SetNull)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([groupId])
+  @@index([isActive])
 }

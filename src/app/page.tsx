@@ -14,7 +14,7 @@ import {
   LayoutDashboard, Upload, Settings, Layers, Sun, Moon, Shield, LogOut,
   ChevronUp, Users, Crown, Target, Calendar, UserCheck, CheckCircle2,
   DollarSign, ShoppingCart, Search, X, Sparkles, Heart,
-  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard, Download,
+  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard, Download, ClipboardList,
 } from 'lucide-react'
 import { fmtRp, fmtNum, getWIBDate, getWIBToday, monthNames, dayNames, currentYear, getWeekRange, getMonthRange, safeFetch } from '@/lib/cms-utils'
 import type { CrewStat, GroupAchievement, DashboardData, Crew, Group, ClaimSale, GroupDetailData, DeleteConfirmState } from '@/lib/cms-types'
@@ -23,6 +23,7 @@ import DashboardTab from '@/components/dashboard/DashboardTab'
 import ClaimsTab from '@/components/claims/ClaimsTab'
 import ManagementTab from '@/components/management/ManagementTab'
 import ExportTab from '@/components/export/ExportTab'
+import JobdeskTab from '@/components/jobdesk/JobdeskTab'
 import DeleteConfirmDialog from '@/components/modals/DeleteConfirmDialog'
 import EditSaleDialog from '@/components/modals/EditSaleDialog'
 import CrewDetailPanel from '@/components/modals/CrewDetailPanel'
@@ -177,6 +178,21 @@ export default function Home() {
   // Management state
   const [groups, setGroups] = useState<Group[]>([])
   const [mgmtCrews, setMgmtCrews] = useState<Crew[]>([])
+
+  // Fetch groups & crews on mount (for Jobdesk tab — no auth required)
+  const jobdeskDataLoadedRef = useRef(false)
+  useEffect(() => {
+    if (jobdeskDataLoadedRef.current) return
+    jobdeskDataLoadedRef.current = true
+    const t = setTimeout(async () => {
+      try {
+        const [g, c] = await Promise.all([safeFetch('/api/groups').then(r => r.json()), safeFetch('/api/crews').then(r => r.json())])
+        if (Array.isArray(g)) setGroups(g)
+        if (Array.isArray(c)) setMgmtCrews(c)
+      } catch { /* silent */ }
+    }, 150)
+    return () => clearTimeout(t)
+  }, [])
   const [showAddCrew, setShowAddCrew] = useState(false)
   const [showAddGroup, setShowAddGroup] = useState(false)
   const [editCrew, setEditCrew] = useState<Crew | null>(null)
@@ -449,14 +465,25 @@ export default function Home() {
         return
       }
 
+      // ── Ctrl/Cmd + N : New jobdesk (jobdesk tab) ──
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault()
+        if (activeTab === 'jobdesk') {
+          // Dispatch a custom event that JobdeskTab listens for
+          window.dispatchEvent(new CustomEvent('jobdesk:create'))
+        }
+        return
+      }
+
       // ── Navigation and theme shortcuts: only when no input/dialog focused ──
       if (inputFocused || dialogOpen) return
 
       // ── 1, 2, 3, 4, 5 : Switch tabs ──
       if (e.key === '1') { setActiveTab('dashboard'); return }
       if (e.key === '2') { setActiveTab('claims'); return }
-      if (e.key === '3') { setActiveTab('export'); return }
-      if (e.key === '4') { setActiveTab('management'); return }
+      if (e.key === '3') { setActiveTab('jobdesk'); return }
+      if (e.key === '4') { setActiveTab('export'); return }
+      if (e.key === '5') { setActiveTab('management'); return }
 
       // ── T : Toggle theme ──
       if (e.key === 't' || e.key === 'T') {
@@ -808,7 +835,7 @@ export default function Home() {
   }, [claimSearch, claimFilterProgram, claimFilterCrew, activeQuickFilter, claimShowClaimed])
 
   // ─── Management handlers ──────────────────────────────
-  const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => {
+  const handleSaveCrew = async (data: { name: string; label: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => {
     try {
       const url = editCrew ? '/api/crews' : '/api/crews'
       const method = editCrew ? 'PUT' : 'POST'
@@ -918,6 +945,7 @@ export default function Home() {
   const navItems = [
     { val: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', desc: 'Ringkasan & statistik' },
     { val: 'claims', icon: Upload, label: 'Claim Penjualan', desc: 'Upload & klaim data' },
+    { val: 'jobdesk', icon: ClipboardList, label: 'Jobdesk', desc: 'Tugas harian crew' },
     { val: 'export', icon: Download, label: 'Export Data', desc: 'Preview & ekspor penjualan' },
     { val: 'management', icon: Settings, label: 'Management', desc: 'Kelola crew & grup' },
   ]
@@ -1198,6 +1226,12 @@ export default function Home() {
               openEditSale={openEditSale}
               setDeleteConfirm={setDeleteConfirm}
               setActiveTab={setActiveTab}
+            />
+
+            {/* ─── Jobdesk Tab ─────────────────────────── */}
+            <JobdeskTab
+              groups={groups}
+              crews={mgmtCrews}
             />
 
             {/* ─── Export Tab ─────────────────────────── */}
