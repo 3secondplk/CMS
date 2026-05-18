@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     where,
     include: {
       group: { select: { id: true, name: true, logo: true } },
-      crew: { select: { id: true, name: true, label: true, photo: true } },
+      crew: { select: { id: true, name: true, photo: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         group: { select: { id: true, name: true, logo: true } },
-        crew: { select: { id: true, name: true, label: true, photo: true } },
+        crew: { select: { id: true, name: true, photo: true } },
       },
     })
 
@@ -87,7 +87,7 @@ export async function PUT(request: NextRequest) {
       data: updateData,
       include: {
         group: { select: { id: true, name: true, logo: true } },
-        crew: { select: { id: true, name: true, label: true, photo: true } },
+        crew: { select: { id: true, name: true, photo: true } },
       },
     })
 

@@ -26,21 +26,6 @@ function getAchievementColor(pct: number) {
   return { text: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950/40', bar: 'bg-red-500' }
 }
 
-function GacorBadge() {
-  return (
-    <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[7px] sm:text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm shadow-orange-500/30 animate-flame-icon">
-      🔥 Gacor
-    </span>
-  )
-}
-function BebanBadge() {
-  return (
-    <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[7px] sm:text-[8px] font-bold uppercase tracking-wider bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-sm animate-beban-badge">
-      😓 Beban
-    </span>
-  )
-}
-
 export default function GroupDetailModal({
   selectedGroupDetail, setSelectedGroupDetail,
   groupDetailData, groupDetailPeriod, setGroupDetailPeriod, groupDetailLoading,
@@ -185,8 +170,6 @@ export default function GroupDetailModal({
                       <div className="space-y-2">
                         {groupDetailData.crews.map((c, idx) => {
                           const aColor = getAchievementColor(c.crewMonthlyAchievement)
-                          const isGacor = idx === 0 && groupDetailData.crews.length >= 2
-                          const isBeban = idx === groupDetailData.crews.length - 1 && groupDetailData.crews.length >= 2
                           return (
                             <motion.div
                               key={c.id}
@@ -211,16 +194,11 @@ export default function GroupDetailModal({
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    <p className={`text-[11px] font-bold truncate leading-tight ${isGacor ? 'animate-flame' : ''}`}>{c.name}</p>
-                                    {c.label && <span className="px-1 py-0 rounded text-[7px] font-semibold bg-[#B8321E]/10 text-[#B8321E] flex-shrink-0">{c.label}</span>}
-                                    {isGacor && <GacorBadge />}
-                                    {isBeban && <BebanBadge />}
-                                  </div>
+                                  <p className="text-[11px] font-bold truncate leading-tight">{c.name}</p>
                                   <p className="text-[9px] text-muted-foreground font-mono">{c.employeeId}</p>
                                 </div>
                                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${aColor.bg} ${aColor.text}`}>
-                                  {groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : groupDetailPeriod === 'weekly' ? c.crewWeeklyAchievement : c.crewDailyAchievement}%
+                                  {groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : c.crewWeeklyAchievement}%
                                 </span>
                               </div>
 
@@ -231,8 +209,8 @@ export default function GroupDetailModal({
                                   <p className={`font-bold tabular-nums mt-0.5 ${idx === 0 ? 'text-[#B8321E] dark:text-[#E6BAA3]' : ''}`}>{fmtRp(c.totalSettle)}</p>
                                 </span>
                                 <span className="flex-1 text-center py-1 rounded-md bg-muted/50">
-                                  <p className="text-muted-foreground leading-none">{groupDetailPeriod === 'monthly' ? 'Target Bulan' : groupDetailPeriod === 'weekly' ? 'Target W' + groupDetailData.currentWeek : 'Target Hari'}</p>
-                                  <p className="font-bold tabular-nums mt-0.5">{fmtRp(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : groupDetailPeriod === 'weekly' ? c.crewCurrentWeekTarget : c.crewDailyTarget)}</p>
+                                  <p className="text-muted-foreground leading-none">{groupDetailPeriod === 'monthly' ? 'Target Bulan' : 'Target W' + groupDetailData.currentWeek}</p>
+                                  <p className="font-bold tabular-nums mt-0.5">{fmtRp(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : c.crewCurrentWeekTarget)}</p>
                                 </span>
                                 <span className="flex-1 text-center py-1 rounded-md bg-muted/50">
                                   <p className="text-muted-foreground leading-none">Qty</p>
@@ -245,11 +223,11 @@ export default function GroupDetailModal({
                               </div>
 
                               {/* Achievement bar */}
-                              {(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : groupDetailPeriod === 'weekly' ? c.crewCurrentWeekTarget : c.crewDailyTarget) > 0 && (
+                              {(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : c.crewCurrentWeekTarget) > 0 && (
                                 <div className="mt-1.5 h-1 bg-muted rounded-full overflow-hidden">
                                   <motion.div
                                     initial={{ width: 0 }}
-                                    animate={{ width: `${Math.min(groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : groupDetailPeriod === 'weekly' ? c.crewWeeklyAchievement : c.crewDailyAchievement, 100)}%` }}
+                                    animate={{ width: `${Math.min(groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : c.crewWeeklyAchievement, 100)}%` }}
                                     transition={{ duration: 0.5, delay: idx * 0.04 }}
                                     className={`h-full rounded-full ${aColor.bar}`}
                                   />
@@ -433,7 +411,7 @@ export default function GroupDetailModal({
                                 <TableHead className="text-[10px] uppercase tracking-wider">#</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider">Crew</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Penjualan</TableHead>
-                                <TableHead className="text-[10px] uppercase tracking-wider text-right">{groupDetailPeriod === 'monthly' ? 'Target Bulan' : groupDetailPeriod === 'weekly' ? `Target W${groupDetailData.currentWeek}` : 'Target Hari'}</TableHead>
+                                <TableHead className="text-[10px] uppercase tracking-wider text-right">{groupDetailPeriod === 'monthly' ? 'Target Bulan' : `Target W${groupDetailData.currentWeek}`}</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Achievement</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-center">Weekly</TableHead>
                                 <TableHead className="text-[10px] uppercase tracking-wider text-right">Qty</TableHead>
@@ -443,11 +421,8 @@ export default function GroupDetailModal({
                             </TableHeader>
                             <TableBody>
                               {groupDetailData.crews.map((c, idx) => {
-                                const displayAchievement = groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : groupDetailPeriod === 'weekly' ? c.crewWeeklyAchievement : c.crewDailyAchievement
-                                const displayTarget = groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : groupDetailPeriod === 'weekly' ? c.crewCurrentWeekTarget : c.crewDailyTarget
+                                const displayAchievement = groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : c.crewWeeklyAchievement
                                 const aColor = getAchievementColor(displayAchievement)
-                                const isGacor = idx === 0 && groupDetailData.crews.length >= 2
-                                const isBeban = idx === groupDetailData.crews.length - 1 && groupDetailData.crews.length >= 2
                                 return (
                                   <TableRow key={c.id} className={`transition-colors ${idx === 0 ? 'bg-amber-50/50 dark:bg-amber-950/10' : 'hover:bg-muted/50'}`}>
                                     <TableCell>
@@ -464,18 +439,13 @@ export default function GroupDetailModal({
                                           </AvatarFallback>
                                         </Avatar>
                                         <div>
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <p className={`text-xs font-semibold ${isGacor ? 'animate-flame' : ''}`}>{c.name}</p>
-                                            {c.label && <span className="px-1 py-0 rounded text-[7px] font-semibold bg-[#B8321E]/10 text-[#B8321E] flex-shrink-0">{c.label}</span>}
-                                            {isGacor && <GacorBadge />}
-                                            {isBeban && <BebanBadge />}
-                                          </div>
+                                          <p className="text-xs font-semibold">{c.name}</p>
                                           <p className="text-[10px] text-muted-foreground font-mono">{c.employeeId}</p>
                                         </div>
                                       </div>
                                     </TableCell>
                                     <TableCell className="text-right text-xs font-bold tabular-nums text-[#B8321E] dark:text-[#F07050]">{fmtRp(c.totalSettle)}</TableCell>
-                                    <TableCell className="text-right text-xs tabular-nums text-muted-foreground">{fmtRp(displayTarget)}</TableCell>
+                                    <TableCell className="text-right text-xs tabular-nums text-muted-foreground">{fmtRp(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : c.crewCurrentWeekTarget)}</TableCell>
                                     <TableCell className="text-right">
                                       <span className={`text-xs font-bold ${aColor.text}`}>{displayAchievement}%</span>
                                     </TableCell>
@@ -516,11 +486,8 @@ export default function GroupDetailModal({
                         {/* Tablet cards (sm) */}
                         <div className="md:hidden sm:grid sm:grid-cols-2 gap-3">
                           {groupDetailData.crews.map((c, idx) => {
-                            const displayAchievement = groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : groupDetailPeriod === 'weekly' ? c.crewWeeklyAchievement : c.crewDailyAchievement
-                            const displayTarget = groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : groupDetailPeriod === 'weekly' ? c.crewCurrentWeekTarget : c.crewDailyTarget
+                            const displayAchievement = groupDetailPeriod === 'monthly' ? c.crewMonthlyAchievement : c.crewWeeklyAchievement
                             const aColor = getAchievementColor(displayAchievement)
-                            const isGacor = idx === 0 && groupDetailData.crews.length >= 2
-                            const isBeban = idx === groupDetailData.crews.length - 1 && groupDetailData.crews.length >= 2
                             return (
                               <motion.div key={c.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }}>
                                 <div className={`p-3 rounded-xl border ${idx === 0 ? 'bg-amber-50/50 dark:bg-amber-950/10 border-amber-200/50 dark:border-amber-800/30' : 'bg-white dark:bg-gray-800'}`}>
@@ -533,12 +500,7 @@ export default function GroupDetailModal({
                                       </AvatarFallback>
                                     </Avatar>
                                     <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <p className={`text-xs font-bold truncate ${isGacor ? 'animate-flame' : ''}`}>{c.name}</p>
-                                        {c.label && <span className="px-1 py-0 rounded text-[7px] font-semibold bg-[#B8321E]/10 text-[#B8321E] flex-shrink-0">{c.label}</span>}
-                                        {isGacor && <GacorBadge />}
-                                        {isBeban && <BebanBadge />}
-                                      </div>
+                                      <p className="text-xs font-bold truncate">{c.name}</p>
                                       <p className="text-[10px] text-muted-foreground font-mono">{c.employeeId}</p>
                                     </div>
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${aColor.bg} ${aColor.text}`}>{displayAchievement}%</span>
@@ -549,8 +511,8 @@ export default function GroupDetailModal({
                                       <p className="text-xs font-bold tabular-nums text-[#B8321E] dark:text-[#E6BAA3]">{fmtRp(c.totalSettle)}</p>
                                     </div>
                                     <div className="text-center p-1.5 rounded-lg bg-muted/50">
-                                      <p className="text-[9px] text-muted-foreground">{groupDetailPeriod === 'monthly' ? 'Target Bulan' : groupDetailPeriod === 'weekly' ? `Target W${groupDetailData.currentWeek}` : 'Target Hari'}</p>
-                                      <p className="text-xs font-bold tabular-nums">{fmtRp(displayTarget)}</p>
+                                      <p className="text-[9px] text-muted-foreground">{groupDetailPeriod === 'monthly' ? 'Target Bulan' : `Target W${groupDetailData.currentWeek}`}</p>
+                                      <p className="text-xs font-bold tabular-nums">{fmtRp(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : c.crewCurrentWeekTarget)}</p>
                                     </div>
                                     <div className="text-center p-1.5 rounded-lg bg-muted/50">
                                       <p className="text-[9px] text-muted-foreground">Qty</p>
@@ -561,7 +523,7 @@ export default function GroupDetailModal({
                                       <p className="text-xs font-bold tabular-nums text-purple-700 dark:text-purple-300">{c.basketSize.toFixed(2)}</p>
                                     </div>
                                   </div>
-                                  {(displayTarget) > 0 && (
+                                  {(groupDetailPeriod === 'monthly' ? c.crewMonthlyTarget : c.crewCurrentWeekTarget) > 0 && (
                                     <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
                                       <motion.div
                                         initial={{ width: 0 }}

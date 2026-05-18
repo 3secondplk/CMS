@@ -835,7 +835,7 @@ export default function Home() {
   }, [claimSearch, claimFilterProgram, claimFilterCrew, activeQuickFilter, claimShowClaimed])
 
   // ─── Management handlers ──────────────────────────────
-  const handleSaveCrew = async (data: { name: string; label: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => {
+  const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => {
     try {
       const url = editCrew ? '/api/crews' : '/api/crews'
       const method = editCrew ? 'PUT' : 'POST'

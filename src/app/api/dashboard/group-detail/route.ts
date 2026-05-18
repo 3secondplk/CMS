@@ -133,10 +133,6 @@ export async function GET(request: NextRequest) {
     const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
     const crewCurrentWeekTarget = crewWeeklyTargets[currentWeek - 1] ?? 0
 
-    // Daily target: weekly target / number of days in current week
-    const daysInCurrentWeek = weekEnd - weekStart + 1
-    const crewDailyTarget = daysInCurrentWeek > 0 ? Math.round(crewCurrentWeekTarget / daysInCurrentWeek) : 0
-
     // Calculate per-week date ranges for all 4 weeks
     const weekRanges = [1, 2, 3, 4].map(w => {
       const start = (w - 1) * 7 + 1
@@ -187,10 +183,9 @@ export async function GET(request: NextRequest) {
       // Current week total (always from week aggregation, not period filter)
       const currentWeekSettle = weekAggMaps[currentWeek - 1]?.get(crew.id) ?? 0
 
-      // Achievement: compare against correct period totals
+      // Achievement: ALWAYS compare against correct period totals (not affected by selected period filter)
       const monthAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((monthlySettle / crewMonthlyTarget) * 100), 999) : 0
       const weekAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((currentWeekSettle / crewCurrentWeekTarget) * 100), 999) : 0
-      const dailyAchievement = crewDailyTarget > 0 ? Math.min(Math.round((settle / crewDailyTarget) * 100), 999) : 0
 
       // Per-week achievements for this crew (all 4 weeks)
       const crewWeeklyDetails = weekRanges.map((wr, i) => {
@@ -211,7 +206,6 @@ export async function GET(request: NextRequest) {
       return {
         id: crew.id,
         name: crew.name,
-        label: crew.label || '',
         photo: crew.photo,
         employeeId: crew.employeeId,
         totalQty: qty,
@@ -222,10 +216,8 @@ export async function GET(request: NextRequest) {
         itemCount: agg?._count ?? 0,
         crewMonthlyTarget,
         crewCurrentWeekTarget,
-        crewDailyTarget,
         crewMonthlyAchievement: monthAchievement,
         crewWeeklyAchievement: weekAchievement,
-        crewDailyAchievement: dailyAchievement,
         crewWeeklyDetails,
       }
     })

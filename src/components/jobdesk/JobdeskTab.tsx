@@ -1456,9 +1456,6 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
                 {crewPerformance.slice(0, 5).map((crew, idx) => {
                   const rate = crew.total > 0 ? Math.round((crew.completed / crew.total) * 100) : 0
                   const trend = crewTrendData[crew.crewId]
-                  const totalCrew = crewPerformance.length
-                  const isGacor = idx === 0 && totalCrew >= 2 && crew.completed > 0
-                  const isBeban = idx === totalCrew - 1 && totalCrew >= 2
                   // Sparkline: compute points from completed counts over 7 days
                   let sparkPoints = ''
                   let sparkFillPoints = ''
@@ -1477,36 +1474,17 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
                     isTrendingUp = vals[vals.length - 1] > vals[0]
                   }
                   return (
-                    <motion.div
-                      key={crew.name}
-                      className={`flex items-center gap-3 px-4 py-2.5 transition-colors ${isGacor ? 'bg-gradient-to-r from-orange-50/80 via-red-50/50 to-transparent dark:from-orange-950/30 dark:via-red-950/20 dark:to-transparent animate-gacor-row' : isBeban ? 'bg-slate-50/50 dark:bg-slate-900/30' : 'hover:bg-muted/20'}`}
-                      whileHover={{ x: 2 }}
-                    >
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                        isGacor ? 'bg-gradient-to-br from-orange-400 to-red-500 text-white shadow-sm shadow-orange-500/40' :
+                    <div key={crew.name} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        idx === 0 ? 'bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-sm' :
                         idx === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white shadow-sm' :
                         idx === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-sm' :
                         'bg-muted text-muted-foreground'
                       }`}>
-                        {isGacor ? '🔥' : idx + 1}
+                        {idx + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className={`text-sm font-medium truncate ${isGacor ? 'animate-flame' : isBeban ? 'text-muted-foreground' : 'text-foreground'}`}>{crew.name}</p>
-                          {crews.find(c => c.id === crew.crewId)?.label && (
-                            <span className="px-1.5 py-0 rounded text-[8px] font-semibold bg-[#E14227]/10 text-[#E14227] border border-[#E14227]/15 flex-shrink-0">{crews.find(c => c.id === crew.crewId)!.label}</span>
-                          )}
-                          {isGacor && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm shadow-orange-500/30 animate-flame-icon flex-shrink-0">
-                              🔥 Gacor
-                            </span>
-                          )}
-                          {isBeban && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wider bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-600 dark:to-slate-700 text-slate-600 dark:text-slate-300 flex-shrink-0 animate-beban-badge">
-                              😓 Beban
-                            </span>
-                          )}
-                        </div>
+                        <p className="text-sm font-medium text-foreground truncate">{crew.name}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[10px] text-muted-foreground">{crew.completed}/{crew.total} selesai</span>
                           {sparkPoints && (
@@ -1531,6 +1509,11 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
                               />
                             </svg>
                           )}
+                          {idx === 0 && crew.completed > 0 && (
+                            <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-medium">
+                              <Flame className="w-2.5 h-2.5" /> Top Performer
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1539,7 +1522,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
                           rate >= 80 ? 'text-emerald-600' : rate >= 50 ? 'text-amber-600' : 'text-gray-500'
                         }`}>{rate}%</span>
                       </div>
-                    </motion.div>
+                    </div>
                   )
                 })}
               </div>
@@ -1864,7 +1847,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
                               {item.crew && (
                                 <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
                                   <User className="w-3 h-3" />
-                                  {item.crew.name}{item.crew.label && <span className="ml-1 px-1 py-0 rounded text-[8px] font-semibold bg-[#E14227]/10 text-[#E14227] border border-[#E14227]/15">{item.crew.label}</span>}
+                                  {item.crew.name}
                                 </span>
                               )}
                               {item.notes && (
@@ -2384,7 +2367,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
                         {item.crew && (
                           <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                             <User className="w-2.5 h-2.5" />
-                            {item.crew.name}{item.crew.label && <span className="ml-1 px-1 py-0 rounded text-[8px] font-semibold bg-[#E14227]/10 text-[#E14227]">{item.crew.label}</span>}
+                            {item.crew.name}
                           </span>
                         )}
                       </div>

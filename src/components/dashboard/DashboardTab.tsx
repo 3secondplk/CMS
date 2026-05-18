@@ -213,28 +213,6 @@ const DashboardTab = React.memo(function DashboardTab({
     return 'bg-gradient-to-r from-red-400 to-rose-500'
   }
 
-  // Determine top (Gacor) and bottom (Beban) crew indices
-  const { gacorIdx, bebanIdx } = useMemo(() => {
-    if (displayCrewStats.length < 2) return { gacorIdx: -1, bebanIdx: -1 }
-    return { gacorIdx: 0, bebanIdx: displayCrewStats.length - 1 }
-  }, [displayCrewStats])
-
-  // Mini badge component for Gacor / Beban
-  function GacorBadge() {
-    return (
-      <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-wider bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm shadow-orange-500/30 animate-flame-icon">
-        🔥 Gacor
-      </span>
-    )
-  }
-  function BebanBadge() {
-    return (
-      <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[8px] sm:text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-sm animate-beban-badge">
-        😓 Beban
-      </span>
-    )
-  }
-
   return (
     <TabsContent value="dashboard" className="mt-4 sm:mt-6 pb-24 md:pb-8">
       {/* Loading skeleton — shimmer placeholders for summary cards */}
@@ -685,10 +663,7 @@ const DashboardTab = React.memo(function DashboardTab({
                               {/* Rank number badge */}
                               <span className="absolute -top-2.5 -right-2.5 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-[#B5C7DB] to-[#7E95B3] dark:from-[#9DB1CC] dark:to-[#7E95B3] flex items-center justify-center text-white font-black text-xs sm:text-sm shadow-md border-2 border-white dark:border-[#1A1A1B]">2</span>
                             </div>
-                            <div className="flex items-center justify-center gap-1 mb-0.5">
-                              <p className="text-[11px] sm:text-xs font-semibold text-center max-w-[110px] truncate leading-tight">{crew.name}</p>
-                              {crew.label && <span className="px-1 py-0 rounded text-[8px] font-semibold bg-[#9DB1CC]/20 text-[#7E95B3] flex-shrink-0">{crew.label}</span>}
-                            </div>
+                            <p className="text-[11px] sm:text-xs font-semibold text-center max-w-[110px] truncate leading-tight">{crew.name}</p>
                             <p className="text-[10px] text-muted-foreground">{crew.groupName}</p>
                             {!isAchievement && targetVal !== null && (
                               <div className="w-full max-w-[120px] mt-1">
@@ -748,11 +723,7 @@ const DashboardTab = React.memo(function DashboardTab({
                               <motion.span className="absolute -bottom-1 -right-2 text-xs" animate={{ opacity: [0, 1, 0], scale: [0.5, 1.1, 0.5], rotate: [0, -90, 0] }} transition={{ duration: 1.8, repeat: Infinity, delay: 0.5 }}>✨</motion.span>
                               <motion.span className="absolute -top-0.5 right-0 text-[10px]" animate={{ opacity: [0, 0.8, 0], scale: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: 1 }}>⭐</motion.span>
                             </div>
-                            <div className="flex items-center justify-center gap-1 mb-0.5 flex-wrap">
-                              <p className="text-xs sm:text-sm font-bold text-center max-w-[130px] truncate leading-tight animate-flame">{crew.name}</p>
-                              {crew.label && <span className="px-1 py-0 rounded text-[8px] font-semibold bg-[#B8321E]/10 text-[#B8321E] flex-shrink-0">{crew.label}</span>}
-                              <GacorBadge />
-                            </div>
+                            <p className="text-xs sm:text-sm font-bold text-center max-w-[130px] truncate leading-tight text-[#B8321E] dark:text-[#F07050]">{crew.name}</p>
                             <p className="text-[10px] text-muted-foreground">{crew.groupName}</p>
                             {!isAchievement && targetVal !== null && (
                               <div className="w-full max-w-[140px] mt-1">
@@ -803,10 +774,7 @@ const DashboardTab = React.memo(function DashboardTab({
                               {/* Rank number badge */}
                               <span className="absolute -top-2.5 -right-2.5 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-[#E6BAA3] to-[#D4956B] dark:from-[#B8321E] dark:to-[#E14227] flex items-center justify-center text-white font-black text-xs sm:text-sm shadow-md border-2 border-white dark:border-[#1A1A1B]">3</span>
                             </div>
-                            <div className="flex items-center justify-center gap-1 mb-0.5">
-                              <p className="text-[11px] sm:text-xs font-semibold text-center max-w-[110px] truncate leading-tight">{crew.name}</p>
-                              {crew.label && <span className="px-1 py-0 rounded text-[8px] font-semibold bg-[#E6BAA3]/20 text-[#D4956B] flex-shrink-0">{crew.label}</span>}
-                            </div>
+                            <p className="text-[11px] sm:text-xs font-semibold text-center max-w-[110px] truncate leading-tight">{crew.name}</p>
                             <p className="text-[10px] text-muted-foreground">{crew.groupName}</p>
                             {!isAchievement && targetVal !== null && (
                               <div className="w-full max-w-[120px] mt-1">
@@ -904,12 +872,7 @@ const DashboardTab = React.memo(function DashboardTab({
                                 </AvatarFallback>
                               </Avatar>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <p className={`text-xs font-semibold truncate ${idx === gacorIdx ? 'animate-flame' : ''}`}>{crew.name}</p>
-                                  {crew.label && <span className="px-1 py-0 rounded text-[8px] font-semibold bg-[#E14227]/10 text-[#E14227] flex-shrink-0">{crew.label}</span>}
-                                  {idx === gacorIdx && <GacorBadge />}
-                                  {idx === bebanIdx && <BebanBadge />}
-                                </div>
+                                <p className="text-xs font-semibold truncate">{crew.name}</p>
                                 <p className="text-[10px] text-muted-foreground">{crew.groupName}</p>
                                 {!isAchievement && targetVal !== null && (
                                   <div className="mt-0.5">
@@ -979,12 +942,7 @@ const DashboardTab = React.memo(function DashboardTab({
                                       </AvatarFallback>
                                     </Avatar>
                                     <div>
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <p className={`font-medium text-sm leading-tight ${idx === gacorIdx ? 'animate-flame' : ''}`}>{crew.name}</p>
-                                        {crew.label && <span className="px-1 py-0 rounded text-[8px] font-semibold bg-[#E14227]/10 text-[#E14227] flex-shrink-0">{crew.label}</span>}
-                                        {idx === gacorIdx && <GacorBadge />}
-                                        {idx === bebanIdx && <BebanBadge />}
-                                      </div>
+                                      <p className="font-medium text-sm leading-tight">{crew.name}</p>
                                       <p className="text-[10px] text-muted-foreground">{crew.employeeId}</p>
                                     </div>
                                   </div>

@@ -126,16 +126,6 @@ export default function CrewDetailPanel({ selectedCrewDetail, setSelectedCrewDet
                     >
                       {crew.name}
                     </motion.h3>
-                    {crew.label && (
-                      <motion.span
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.12 }}
-                        className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/20 text-white/90"
-                      >
-                        {crew.label}
-                      </motion.span>
-                    )}
                     <motion.p
                       initial={{ opacity: 0, x: 10 }}
                       animate={{ opacity: 1, x: 0 }}

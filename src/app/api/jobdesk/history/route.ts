@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     where,
     include: {
       group: { select: { id: true, name: true, logo: true } },
-      crew: { select: { id: true, name: true, label: true, photo: true } },
+      crew: { select: { id: true, name: true, photo: true } },
       verifiedByAdmin: { select: { id: true, name: true } },
     },
     orderBy: [{ jobDate: 'desc' }, { createdAt: 'desc' }],

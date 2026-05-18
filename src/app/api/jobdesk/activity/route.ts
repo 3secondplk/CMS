@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     orderBy: { updatedAt: 'desc' },
     include: {
       group: { select: { id: true, name: true } },
-      crew: { select: { id: true, name: true, label: true } },
+      crew: { select: { id: true, name: true } },
       verifiedByAdmin: { select: { id: true, name: true } },
     },
   })
@@ -44,7 +44,6 @@ export async function GET(request: NextRequest) {
       priority: item.priority,
       groupName: item.group.name,
       crewName: item.crew?.name || null,
-      crewLabel: item.crew?.label || null,
       verificationPercent: item.verificationPercent,
       verifiedByAdmin: item.verifiedByAdmin?.name || null,
       updatedAt: item.updatedAt.toISOString(),

@@ -228,7 +228,6 @@ export async function GET(request: NextRequest) {
       return {
         id: crew.id,
         name: crew.name,
-        label: crew.label || '',
         photo: crew.photo,
         employeeId: crew.employeeId,
         groupId: crew.group.id,

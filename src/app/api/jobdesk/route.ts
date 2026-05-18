@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     where,
     include: {
       group: { select: { id: true, name: true, logo: true } },
-      crew: { select: { id: true, name: true, label: true, photo: true, employeeId: true } },
+      crew: { select: { id: true, name: true, photo: true, employeeId: true } },
       verifiedByAdmin: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   const allGroups = await db.group.findMany({
     select: {
       id: true, name: true, logo: true,
-      crews: { select: { id: true, name: true, label: true, photo: true } },
+      crews: { select: { id: true, name: true, photo: true } },
       _count: { select: { jobdesks: { where: { jobDate: date } } } },
     },
   })
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         group: { select: { id: true, name: true, logo: true } },
-        crew: { select: { id: true, name: true, label: true, photo: true } },
+        crew: { select: { id: true, name: true, photo: true } },
       },
     })
 
@@ -169,7 +169,7 @@ export async function PUT(request: NextRequest) {
       data: updateData,
       include: {
         group: { select: { id: true, name: true, logo: true } },
-        crew: { select: { id: true, name: true, label: true, photo: true, employeeId: true } },
+        crew: { select: { id: true, name: true, photo: true, employeeId: true } },
         verifiedByAdmin: { select: { id: true, name: true } },
       },
     })
