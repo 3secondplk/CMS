@@ -78,7 +78,7 @@ export interface DashboardData {
 }
 
 export interface Crew {
-  id: string; name: string; photo: string | null; employeeId: string; groupId: string
+  id: string; name: string; photo: string | null; employeeId: string; groupId: string; label: string
   group: { id: string; name: string }; totalSales: number; totalQty: number; todaySales: number; transactionCount: number
 }
 
@@ -195,11 +195,15 @@ export interface JobdeskGroupStat {
   avgVerification: number
 }
 
+export interface Shift {
+  name: string
+  start: string
+  end: string
+}
+
 export interface ShiftSetting {
   id: string
-  shiftName: string
-  shiftStart: string
-  shiftEnd: string
+  shifts: Shift[]
   timezone: string
 }
 

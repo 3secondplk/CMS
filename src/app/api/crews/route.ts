@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     if (!auth) return auth as NextResponse
 
     const body = await request.json()
-    const { name, photo, employeeId, groupId } = body
+    const { name, photo, employeeId, groupId, label } = body
 
     if (!name || !employeeId || !groupId) {
       return NextResponse.json({ error: 'Nama, ID Karyawan, dan Group harus diisi' }, { status: 400 })
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     }
 
     const crew = await db.crew.create({
-      data: { name, photo: photo || null, employeeId, groupId },
+      data: { name, photo: photo || null, employeeId, groupId, label: label || 'Crew' },
       include: { group: true },
     })
 
@@ -123,7 +123,7 @@ export async function PUT(request: NextRequest) {
     if (!auth) return auth as NextResponse
 
     const body = await request.json()
-    const { id, name, photo, employeeId, groupId } = body
+    const { id, name, photo, employeeId, groupId, label } = body
 
     if (!id) {
       return NextResponse.json({ error: 'ID crew harus diisi' }, { status: 400 })
@@ -144,6 +144,7 @@ export async function PUT(request: NextRequest) {
         ...(photo !== undefined && { photo }),
         ...(employeeId && { employeeId }),
         ...(groupId && { groupId }),
+        ...(label !== undefined && { label }),
       },
       include: { group: true },
     })

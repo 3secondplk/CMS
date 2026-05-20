@@ -218,7 +218,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
   // Shift settings
   const [showShiftSettings, setShowShiftSettings] = useState(false)
   const [shiftSettings, setShiftSettings] = useState<ShiftSetting | null>(null)
-  const [shiftForm, setShiftForm] = useState({ shiftStart: '08:00', shiftEnd: '17:00' })
+  const [shiftForm, setShiftForm] = useState<Shift[]>([{ name: 'Shift 1', start: '08:00', end: '17:00' }])
   const [shiftSaving, setShiftSaving] = useState(false)
 
   // Crew trend sparkline data
@@ -459,7 +459,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
       const d = await r.json()
       if (d.settings) {
         setShiftSettings(d.settings)
-        setShiftForm({ shiftStart: d.settings.shiftStart, shiftEnd: d.settings.shiftEnd })
+        setShiftForm(d.settings.shifts || [{ name: 'Shift 1', start: '08:00', end: '17:00' }])
       }
     } catch { /* silent */ }
   }, [])
@@ -635,7 +635,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
       const r = await safeFetch('/api/settings/shift', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shiftForm),
+        body: JSON.stringify({ shifts: shiftForm }),
       })
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
@@ -690,10 +690,28 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
   }
 
   // ─── Check if shift has ended (stable memo) ─────────
-  const isShiftEnded = useMemo(() => {
-    if (!shiftSettings) return false
+  // Get current active shift based on WIB time
+  const currentShift = useMemo(() => {
+    if (!shiftSettings?.shifts?.length) return null
     const nowMinutes = wibNow.getHours() * 60 + wibNow.getMinutes()
-    const [eh, em] = shiftSettings.shiftEnd.split(':').map(Number)
+    for (const shift of shiftSettings.shifts) {
+      const [sh, sm] = shift.start.split(':').map(Number)
+      const [eh, em] = shift.end.split(':').map(Number)
+      if (nowMinutes >= sh * 60 + sm && nowMinutes <= eh * 60 + em) return shift
+    }
+    // Check if before first shift
+    const firstShift = shiftSettings.shifts[0]
+    const [fsh, fsm] = firstShift.start.split(':').map(Number)
+    if (nowMinutes < fsh * 60 + fsm) return null
+    // After last shift
+    return shiftSettings.shifts[shiftSettings.shifts.length - 1]
+  }, [wibNow, shiftSettings])
+
+  const isShiftEnded = useMemo(() => {
+    if (!shiftSettings?.shifts?.length) return false
+    const nowMinutes = wibNow.getHours() * 60 + wibNow.getMinutes()
+    const lastShift = shiftSettings.shifts[shiftSettings.shifts.length - 1]
+    const [eh, em] = lastShift.end.split(':').map(Number)
     return nowMinutes >= eh * 60 + em
   }, [wibNow, shiftSettings])
 
@@ -764,10 +782,11 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
 
   // ─── Shift Countdown ──────────────────────────────────
   const shiftCountdown = useMemo(() => {
-    if (!shiftSettings) return null
+    if (!shiftSettings?.shifts?.length) return null
     const nowMinutes = wibNow.getHours() * 60 + wibNow.getMinutes()
-    const [sh, sm] = shiftSettings.shiftStart.split(':').map(Number)
-    const [eh, em] = shiftSettings.shiftEnd.split(':').map(Number)
+    if (!currentShift) return null
+    const [sh, sm] = currentShift.start.split(':').map(Number)
+    const [eh, em] = currentShift.end.split(':').map(Number)
     const startMins = sh * 60 + sm
     const endMins = eh * 60 + em
 
@@ -827,13 +846,13 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
     const ended = isShiftEnded
     if (ended && !prevShiftEnded.current) {
       toast('⏰ Shift telah berakhir!', {
-        description: `Lihat summary akhir shift (${shiftSettings.shiftStart}–${shiftSettings.shiftEnd})`,
+        description: `Lihat summary akhir shift (${currentShift?.start || '–'}–${currentShift?.end || '–'})`,
         duration: 6000,
       })
     }
     if (!ended && prevShiftEnded.current && shiftCountdown?.status === 'active') {
       toast('🚀 Shift baru dimulai!', {
-        description: `Shift aktif ${shiftSettings.shiftStart}–${shiftSettings.shiftEnd}. Selamat bekerja!`,
+        description: `Shift aktif ${currentShift?.name}: ${currentShift?.start}–${currentShift?.end}. Selamat bekerja!`,
         duration: 4000,
       })
     }
@@ -1201,7 +1220,7 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
             </div>
             <div>
               <span className="text-sm font-semibold text-foreground">
-                Shift: {shiftSettings.shiftStart} — {shiftSettings.shiftEnd}
+                {currentShift ? `${currentShift.name}: ${currentShift.start} — ${currentShift.end}` : 'Belum mulai'}
               </span>
               <div className="flex items-center gap-2 mt-0.5">
                 {isShiftEnded ? (
@@ -1239,8 +1258,8 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
               </div>
               <CircularProgress
                 value={(() => {
-                  const [sh, sm] = shiftSettings.shiftStart.split(':').map(Number)
-                  const [eh, em] = shiftSettings.shiftEnd.split(':').map(Number)
+                  const [sh, sm] = currentShift.start.split(':').map(Number)
+                  const [eh, em] = currentShift.end.split(':').map(Number)
                   const total = (eh * 60 + em) - (sh * 60 + sm)
                   const elapsed = total - (shiftCountdown.hours * 60 + shiftCountdown.minutes)
                   return Math.min(100, Math.round((elapsed / total) * 100))
@@ -2394,29 +2413,57 @@ export default function JobdeskTab({ groups, crews }: JobdeskTabProps) {
 
       {/* ─── SHIFT SETTINGS DIALOG ─────────────────────── */}
       <Dialog open={showShiftSettings} onOpenChange={setShowShiftSettings}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Pengaturan Jam Shift</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-[#E14227]" />
+              Pengaturan Jam Shift
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Jam Mulai Shift</label>
-              <Input
-                type="time"
-                value={shiftForm.shiftStart}
-                onChange={e => setShiftForm(p => ({ ...p, shiftStart: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Jam Berakhir Shift</label>
-              <Input
-                type="time"
-                value={shiftForm.shiftEnd}
-                onChange={e => setShiftForm(p => ({ ...p, shiftEnd: e.target.value }))}
-              />
-            </div>
+          <div className="space-y-3 py-2">
+            {shiftForm.map((shift, idx) => (
+              <div key={idx} className="flex items-end gap-2 p-3 rounded-lg border bg-muted/30">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Nama Shift</label>
+                  <Input
+                    value={shift.name}
+                    onChange={e => setShiftForm(p => p.map((s, i) => i === idx ? { ...s, name: e.target.value } : s))}
+                    placeholder="Shift 1"
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="w-[110px] space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Mulai</label>
+                  <Input
+                    type="time"
+                    value={shift.start}
+                    onChange={e => setShiftForm(p => p.map((s, i) => i === idx ? { ...s, start: e.target.value } : s))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="w-[110px] space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Selesai</label>
+                  <Input
+                    type="time"
+                    value={shift.end}
+                    onChange={e => setShiftForm(p => p.map((s, i) => i === idx ? { ...s, end: e.target.value } : s))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {shiftForm.length > 1 && (
+                  <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => setShiftForm(p => p.filter((_, i) => i !== idx))}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <Button variant="outline" size="sm" className="w-full border-dashed"
+              onClick={() => setShiftForm(p => [...p, { name: `Shift ${p.length + 1}`, start: '00:00', end: '08:00' }])}>
+              <Plus className="w-4 h-4 mr-1.5" /> Tambah Shift
+            </Button>
             <p className="text-[11px] text-muted-foreground">
-              Summary jobdesk akan ditampilkan ketika jam shift berakhir. Semua waktu dalam WIB (UTC+7).
+              Summary jobdesk akan ditampilkan ketika shift terakhir berakhir. Semua waktu dalam WIB (UTC+7).
             </p>
           </div>
           <DialogFooter className="gap-2">

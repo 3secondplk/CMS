@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { UserPlus, User, Image as ImageIcon, BadgeCheck, Users, Save, AlertCircle, Camera, X, UploadCloud, Loader2 } from 'lucide-react'
+import { UserPlus, User, Image as ImageIcon, BadgeCheck, Users, Save, AlertCircle, Camera, X, UploadCloud, Loader2, Tag } from 'lucide-react'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import type { Crew, Group } from '@/lib/cms-types'
 
@@ -77,7 +77,7 @@ function compressImage(file: File): Promise<string> {
 // ─── CrewForm Component ────────────────────────────────────
 export default function CrewForm({ crew, groups, onSave, onCancel }: {
   crew?: Crew; groups: Group[]
-  onSave: (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => void
+  onSave: (data: { name: string; photo: string; employeeId: string; groupId: string; label: string; removePhoto?: boolean }) => void
   onCancel: () => void
 }) {
   const [form, setForm] = useState({
@@ -85,6 +85,7 @@ export default function CrewForm({ crew, groups, onSave, onCancel }: {
     photo: crew?.photo || '',
     employeeId: crew?.employeeId || '',
     groupId: crew?.groupId || crew?.group?.id || '',
+    label: crew?.label || 'Crew',
   })
   const [touched, setTouched] = useState(false)
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null)
@@ -225,6 +226,27 @@ export default function CrewForm({ crew, groups, onSave, onCancel }: {
               </p>
             )}
           </div>
+        </div>
+
+        {/* Label / Jabatan Field */}
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium flex items-center gap-1.5">
+            <Tag className="w-3.5 h-3.5 text-[#E14227]" />
+            Jabatan / Label
+          </Label>
+          <div className="relative">
+            <Input
+              value={form.label}
+              onChange={e => setForm({ ...form, label: e.target.value })}
+              placeholder="Crew, Cashier, SPV, PIC..."
+              className="pl-9 text-sm"
+              maxLength={50}
+            />
+            <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50 pointer-events-none" />
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Label jabatan crew, misal: Crew, Cashier, SPV, PIC
+          </p>
         </div>
 
         {/* Photo Upload Section with Drag & Drop */}
