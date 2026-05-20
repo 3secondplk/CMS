@@ -1,10 +1,11 @@
 // ─────────────────────────────────────────────────────────
-// CMS Crew Management System — PostgreSQL Production Schema
+// CMS Crew Management System — Prisma Schema
 // Developer: Ahtjong Labs
+// Database: SQLite (dev) / PostgreSQL (prod)
 // ─────────────────────────────────────────────────────────
-// USAGE: Replace schema.prisma with this file for PostgreSQL
-//   cp schema.postgresql.prisma schema.prisma
-//   bunx prisma generate && bunx prisma db push
+// To switch database, change provider below AND update .env:
+//   SQLite:     provider = "sqlite"
+//   PostgreSQL: provider = "postgresql"
 
 generator client {
   provider = "prisma-client-js"
@@ -24,7 +25,6 @@ model Admin {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  @@map("admins")
 }
 
 model Group {
@@ -42,7 +42,6 @@ model Group {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
-  @@map("groups")
 }
 
 model Crew {
@@ -61,7 +60,6 @@ model Crew {
 
   @@index([groupId])
   @@index([label])
-  @@map("crews")
 }
 
 model Sale {
@@ -97,7 +95,6 @@ model Sale {
   @@index([program])
   @@index([tanggal, kodeExtend])
   @@index([idPenjualan])
-  @@map("sales")
 }
 
 model ActivityLog {
@@ -110,7 +107,6 @@ model ActivityLog {
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
-  @@map("activity_logs")
 }
 
 // ─── Jobdesk / Daily Task Management ─────────────────────
@@ -122,7 +118,6 @@ model ShiftSetting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("shift_settings")
 }
 
 model Jobdesk {
@@ -148,7 +143,6 @@ model Jobdesk {
   @@index([crewId])
   @@index([jobDate])
   @@index([status])
-  @@map("jobdesks")
 }
 
 model JobdeskTemplate {
@@ -166,5 +160,4 @@ model JobdeskTemplate {
 
   @@index([groupId])
   @@index([isActive])
-  @@map("jobdesk_templates")
 }
