@@ -1,7 +1,10 @@
 // ─────────────────────────────────────────────────────────
-// CMS Crew Management System — Prisma Schema (PostgreSQL)
+// CMS Crew Management System — PostgreSQL Production Schema
 // Developer: Ahtjong Labs
 // ─────────────────────────────────────────────────────────
+// USAGE: Replace schema.prisma with this file for PostgreSQL
+//   cp schema.postgresql.prisma schema.prisma
+//   bunx prisma generate && bunx prisma db push
 
 generator client {
   provider = "prisma-client-js"
@@ -13,52 +16,58 @@ datasource db {
 }
 
 model Admin {
-  id        String   @id @default(cuid())
-  username  String   @unique
-  password  String
-  name      String   @default("Admin")
+  id                   String    @id @default(cuid())
+  username             String    @unique
+  password             String
+  name                 String    @default("Admin")
   jobdeskVerifications Jobdesk[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@map("admins")
 }
 
 model Group {
-  id             String    @id @default(cuid())
-  name           String
-  logo           String?
-  monthlyTarget  Float     @default(0)
-  week1Target    Float     @default(0)
-  week2Target    Float     @default(0)
-  week3Target    Float     @default(0)
-  week4Target    Float     @default(0)
-  crews          Crew[]
-  jobdesks       Jobdesk[]
+  id               String             @id @default(cuid())
+  name             String
+  logo             String?
+  monthlyTarget    Float              @default(0)
+  week1Target      Float              @default(0)
+  week2Target      Float              @default(0)
+  week3Target      Float              @default(0)
+  week4Target      Float              @default(0)
+  crews            Crew[]
+  jobdesks         Jobdesk[]
   jobdeskTemplates JobdeskTemplate[]
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@map("groups")
 }
 
 model Crew {
-  id         String    @id @default(cuid())
-  name       String
-  label      String    @default("")
-  photo      String?
-  employeeId String    @unique
-  groupId    String
-  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  sales      Sale[]
-  jobdesks   Jobdesk[]
+  id               String             @id @default(cuid())
+  name             String
+  photo            String?
+  employeeId       String             @unique
+  label            String             @default("Crew") // Crew, Cashier, SPV, etc.
+  groupId          String
+  group            Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sales            Sale[]
+  jobdesks         Jobdesk[]
   jobdeskTemplates JobdeskTemplate[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
   @@index([groupId])
+  @@index([label])
+  @@map("crews")
 }
 
 model Sale {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   crewId           String?
-  crew             Crew?    @relation(fields: [crewId], references: [id], onDelete: SetNull)
+  crew             Crew?     @relation(fields: [crewId], references: [id], onDelete: SetNull)
   tanggal          String
   idPenjualan      String?
   statusRetention  String?
@@ -68,25 +77,27 @@ model Sale {
   dept             String?
   modul            String?
   ukuran           String?
-  qty              Int      @default(0)
-  hjp              Float    @default(0)
-  netto            Float    @default(0)
-  diskon           Float    @default(0)
-  diskonRp         Float    @default(0)
-  potongan         Float    @default(0)
-  potonganV        Float    @default(0)
-  settle           Float    @default(0)
+  qty              Int       @default(0)
+  hjp              Float     @default(0)
+  netto            Float     @default(0)
+  diskon           Float     @default(0)
+  diskonRp         Float     @default(0)
+  potongan         Float     @default(0)
+  potonganV        Float     @default(0)
+  settle           Float     @default(0)
   pembayaran       String?
   program          String?
   channelStock     String?
   claimedAt        DateTime?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([tanggal])
   @@index([kodeExtend])
   @@index([crewId])
-  @@index([claimedAt])
-  @@index([brand])
+  @@index([program])
+  @@index([tanggal, kodeExtend])
+  @@index([idPenjualan])
+  @@map("sales")
 }
 
 model ActivityLog {
@@ -99,43 +110,45 @@ model ActivityLog {
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
+  @@map("activity_logs")
 }
 
 // ─── Jobdesk / Daily Task Management ─────────────────────
 
 model ShiftSetting {
   id        String   @id @default(cuid())
-  shiftName String   @default("Default Shift")
-  shiftStart String  @default("08:00")
-  shiftEnd   String  @default("17:00")
-  timezone   String   @default("Asia/Jakarta")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  shifts    String   @default("[{\"name\":\"Shift 1\",\"start\":\"08:00\",\"end\":\"17:00\"}]") // JSON array
+  timezone  String   @default("Asia/Jakarta")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("shift_settings")
 }
 
 model Jobdesk {
-  id                 String    @id @default(cuid())
-  groupId            String
-  group              Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  crewId             String?
-  crew               Crew?     @relation(fields: [crewId], references: [id], onDelete: SetNull)
-  title              String
-  description        String?
-  status             String    @default("pending") // pending, in_progress, completed
-  priority           String    @default("medium") // low, medium, high
-  verificationPercent Int      @default(0)
-  verifiedByAdminId  String?
-  verifiedByAdmin    Admin?    @relation(fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
-  notes              String?
-  jobDate            String    // YYYY-MM-DD in WIB (UTC+7)
-  completedAt        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                  String    @id @default(cuid())
+  groupId             String
+  group               Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  crewId              String?
+  crew                Crew?     @relation(fields: [crewId], references: [id], onDelete: SetNull)
+  title               String
+  description         String?
+  status              String    @default("pending") // pending, in_progress, completed
+  priority            String    @default("medium") // low, medium, high
+  verificationPercent Int       @default(0)
+  verifiedByAdminId   String?
+  verifiedByAdmin     Admin?    @relation(fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
+  notes               String?
+  jobDate             String    // YYYY-MM-DD
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([groupId])
+  @@index([crewId])
   @@index([jobDate])
   @@index([status])
-  @@index([crewId])
+  @@map("jobdesks")
 }
 
 model JobdeskTemplate {
@@ -153,4 +166,5 @@ model JobdeskTemplate {
 
   @@index([groupId])
   @@index([isActive])
+  @@map("jobdesk_templates")
 }
