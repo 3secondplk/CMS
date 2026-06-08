@@ -162,7 +162,7 @@ interface ManagementTabProps {
   setEditGroup: (g: Group | null) => void
   filteredMgmtCrews: Crew[]
   filteredGroups: Group[]
-  handleSaveCrew: (data: { name: string; photo: string; employeeId: string; groupId: string; label: string; removePhoto?: boolean }) => void
+  handleSaveCrew: (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => void
   handleDeleteCrew: (id: string) => void
   handleSaveGroup: (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number }) => void
   handleDeleteGroup: (id: string) => void
@@ -503,14 +503,7 @@ const ManagementTab = React.memo(function ManagementTab({
                                 </AvatarFallback>
                               </Avatar>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <p className="text-sm font-semibold truncate">{crew.name}</p>
-                                  {crew.label && crew.label !== 'Crew' && (
-                                    <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
-                                      {crew.label}
-                                    </span>
-                                  )}
-                                </div>
+                                <p className="text-sm font-semibold truncate">{crew.name}</p>
                                 <p className="text-[11px] text-muted-foreground font-mono">{crew.employeeId}</p>
                               </div>
                               <div className="flex gap-1 shrink-0">
@@ -610,11 +603,6 @@ const ManagementTab = React.memo(function ManagementTab({
                                     </AvatarFallback>
                                   </Avatar>
                                   <span className="font-semibold text-sm">{crew.name}</span>
-                                  {crew.label && crew.label !== 'Crew' && (
-                                    <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
-                                      {crew.label}
-                                    </span>
-                                  )}
                                   {idx < 3 && (
                                     <span className="text-[10px] font-bold">
                                       {idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}

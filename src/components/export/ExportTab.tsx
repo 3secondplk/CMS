@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { TabsContent } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -336,61 +335,13 @@ const ExportTab = React.memo(function ExportTab({
   }, [selectedCrewId, selectedGroupId, dateFrom, dateTo, debouncedSearch, showClaimed])
 
   // ═══════════════════════════════════════════════════
-  // NOT AUTHENTICATED — show login prompt
-  // ═══════════════════════════════════════════════════
-  if (!isAdmin) {
-    return (
-      <TabsContent value="export" className="mt-4 sm:mt-6 pb-24 md:pb-8">
-        <motion.div {...fadeIn} className="flex flex-col items-center justify-center py-24 gap-5">
-          <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', damping: 15 }}
-            className="relative"
-          >
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#D4956B] via-[#E14227] to-[#9DB1CC] flex items-center justify-center shadow-xl shadow-[#D4956B]/25 animate-pulse-glow">
-              <Download className="w-12 h-12 text-white" />
-            </div>
-            <motion.div
-              animate={{ y: [0, -4, 0] }}
-              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-              className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-gradient-to-br from-[#E14227] to-[#B8321E] flex items-center justify-center shadow-lg shadow-[#E14227]/30"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
-            </motion.div>
-            {/* Floating badge with second icon */}
-            <motion.div
-              animate={{ y: [0, -5, 0], rotate: [0, 5, -5, 0] }}
-              transition={{ duration: 3.5, repeat: Infinity, delay: 0.5 }}
-              className="absolute -bottom-1 -left-3"
-            >
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#9DB1CC] to-[#7E95B3] flex items-center justify-center shadow-lg shadow-[#9DB1CC]/30">
-                <BarChart3 className="w-4 h-4 text-white" />
-              </div>
-            </motion.div>
-          </motion.div>
-          <div className="text-center space-y-2">
-            <h3 className="text-xl font-bold text-foreground gradient-text">Export Data</h3>
-            <p className="text-muted-foreground text-center max-w-sm text-sm leading-relaxed">
-              Export laporan penjualan ke CSV/Excel. Login sebagai admin untuk mengakses.
-            </p>
-          </div>
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground/70">
-            <div className="w-2 h-2 rounded-full bg-[#E14227]/50 animate-subtle-pulse" />
-            <span className="animate-subtle-pulse">Requires Admin Authentication</span>
-          </div>
-        </motion.div>
-      </TabsContent>
-    )
-  }
-
-  // ═══════════════════════════════════════════════════
   // INITIAL LOADING SKELETON
   // ═══════════════════════════════════════════════════
+  if (!isAdmin) return null
+
   if (initialLoading) {
     return (
-      <TabsContent value="export" className="mt-4 sm:mt-6 pb-24 md:pb-8">
-        <motion.div {...stagger} className="space-y-5">
+      <motion.div {...stagger} className="space-y-5 mt-4 sm:mt-6">
         <Card className="border-0 shadow-lg glass-card">
           <CardContent className="p-4 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -420,8 +371,7 @@ const ExportTab = React.memo(function ExportTab({
             </div>
           </CardContent>
         </Card>
-        </motion.div>
-      </TabsContent>
+      </motion.div>
     )
   }
 
@@ -429,8 +379,7 @@ const ExportTab = React.memo(function ExportTab({
   // MAIN RENDER
   // ═══════════════════════════════════════════════════
   return (
-    <TabsContent value="export" className="mt-4 sm:mt-6 pb-24 md:pb-8">
-    <motion.div {...stagger} className="space-y-5">
+    <motion.div {...stagger} className="space-y-5 mt-4 sm:mt-6 pb-24 md:pb-8">
 
       {/* ═══════════════════════════════════════════════
           FILTERS SECTION
@@ -1104,7 +1053,6 @@ const ExportTab = React.memo(function ExportTab({
       </AnimatePresence>
 
     </motion.div>
-    </TabsContent>
   )
 })
 

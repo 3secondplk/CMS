@@ -14,7 +14,7 @@ import {
   LayoutDashboard, Upload, Settings, Layers, Sun, Moon, Shield, LogOut,
   ChevronUp, Users, Crown, Target, Calendar, UserCheck, CheckCircle2,
   DollarSign, ShoppingCart, Search, X, Sparkles, Heart,
-  Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard, Download, ClipboardList,
+  ArrowLeft, Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard, Download,
 } from 'lucide-react'
 import { fmtRp, fmtNum, getWIBDate, getWIBToday, monthNames, dayNames, currentYear, getWeekRange, getMonthRange, safeFetch } from '@/lib/cms-utils'
 import type { CrewStat, GroupAchievement, DashboardData, Crew, Group, ClaimSale, GroupDetailData, DeleteConfirmState } from '@/lib/cms-types'
@@ -73,6 +73,8 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [dashPeriod, setDashPeriod] = useState<'today' | 'week' | 'month'>('today')
   const [dashLoading, setDashLoading] = useState(true)
+  const [dashFilterMonth, setDashFilterMonth] = useState<number | null>(null)
+  const [dashFilterYear, setDashFilterYear] = useState<number | null>(null)
 
   // Claims state
   const [crews, setCrews] = useState<Crew[]>([])
@@ -178,21 +180,6 @@ export default function Home() {
   // Management state
   const [groups, setGroups] = useState<Group[]>([])
   const [mgmtCrews, setMgmtCrews] = useState<Crew[]>([])
-
-  // Fetch groups & crews on mount (for Jobdesk tab — no auth required)
-  const jobdeskDataLoadedRef = useRef(false)
-  useEffect(() => {
-    if (jobdeskDataLoadedRef.current) return
-    jobdeskDataLoadedRef.current = true
-    const t = setTimeout(async () => {
-      try {
-        const [g, c] = await Promise.all([safeFetch('/api/groups').then(r => r.json()), safeFetch('/api/crews').then(r => r.json())])
-        if (Array.isArray(g)) setGroups(g)
-        if (Array.isArray(c)) setMgmtCrews(c)
-      } catch { /* silent */ }
-    }, 150)
-    return () => clearTimeout(t)
-  }, [])
   const [showAddCrew, setShowAddCrew] = useState(false)
   const [showAddGroup, setShowAddGroup] = useState(false)
   const [editCrew, setEditCrew] = useState<Crew | null>(null)
@@ -264,13 +251,17 @@ export default function Home() {
   const fetchDashboard = useCallback(async () => {
     setDashLoading(true)
     try {
-      const r = await safeFetch(`/api/dashboard?period=${dashPeriod}`)
+      const params = new URLSearchParams()
+      params.set('period', dashPeriod)
+      if (dashFilterMonth) params.set('month', String(dashFilterMonth))
+      if (dashFilterYear) params.set('year', String(dashFilterYear))
+      const r = await safeFetch(`/api/dashboard?${params}`)
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
       setDashboard(d)
     } catch { toast.error('Gagal memuat dashboard') }
     finally { setDashLoading(false) }
-  }, [dashPeriod])
+  }, [dashPeriod, dashFilterMonth, dashFilterYear])
 
   // Fetch crews for claim form — only when claims tab is active
   // NOTE: uses useRef (not useState) for loaded flag to avoid re-render
@@ -378,7 +369,7 @@ export default function Home() {
       setDashInitialLoaded(true)
     }
     // NOTE: claims refetch is handled by the dedicated filter-change effect above
-    else if (activeTab === 'management' && isAdmin) fetchManagement()
+    else if ((activeTab === 'management' || activeTab === 'jobdesk') && isAdmin) fetchManagement()
   }, [activeTab, fetchDashboard, fetchManagement, isAdmin])
 
   // Scroll listener for back-to-top button
@@ -423,6 +414,8 @@ export default function Home() {
         if (showFilterPanel) { setShowFilterPanel(false); return }
         // Deselect all claims
         if (selectedSaleIds.size > 0) { setSelectedSaleIds(new Set()); return }
+        // Exit jobdesk full-page
+        if (activeTab === 'jobdesk') { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); return }
         return
       }
 
@@ -465,24 +458,14 @@ export default function Home() {
         return
       }
 
-      // ── Ctrl/Cmd + N : New jobdesk (jobdesk tab) ──
-      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
-        e.preventDefault()
-        if (activeTab === 'jobdesk') {
-          // Dispatch a custom event that JobdeskTab listens for
-          window.dispatchEvent(new CustomEvent('jobdesk:create'))
-        }
-        return
-      }
-
       // ── Navigation and theme shortcuts: only when no input/dialog focused ──
       if (inputFocused || dialogOpen) return
 
       // ── 1, 2, 3, 4, 5 : Switch tabs ──
       if (e.key === '1') { setActiveTab('dashboard'); return }
       if (e.key === '2') { setActiveTab('claims'); return }
-      if (e.key === '3') { setActiveTab('jobdesk'); return }
-      if (e.key === '4') { setActiveTab('export'); return }
+      if (e.key === '3') { setActiveTab('export'); return }
+      if (e.key === '4') { setActiveTab('jobdesk'); return }
       if (e.key === '5') { setActiveTab('management'); return }
 
       // ── T : Toggle theme ──
@@ -835,7 +818,7 @@ export default function Home() {
   }, [claimSearch, claimFilterProgram, claimFilterCrew, activeQuickFilter, claimShowClaimed])
 
   // ─── Management handlers ──────────────────────────────
-  const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string; label: string; removePhoto?: boolean }) => {
+  const handleSaveCrew = async (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => {
     try {
       const url = editCrew ? '/api/crews' : '/api/crews'
       const method = editCrew ? 'PUT' : 'POST'
@@ -945,8 +928,8 @@ export default function Home() {
   const navItems = [
     { val: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', desc: 'Ringkasan & statistik' },
     { val: 'claims', icon: Upload, label: 'Claim Penjualan', desc: 'Upload & klaim data' },
-    { val: 'jobdesk', icon: ClipboardList, label: 'Jobdesk', desc: 'Tugas harian crew' },
     { val: 'export', icon: Download, label: 'Export Data', desc: 'Preview & ekspor penjualan' },
+    { val: 'jobdesk', icon: Briefcase, label: 'Jobdesk', desc: 'Tugas harian crew' },
     { val: 'management', icon: Settings, label: 'Management', desc: 'Kelola crew & grup' },
   ]
 
@@ -1142,6 +1125,10 @@ export default function Home() {
               dashPeriod={dashPeriod}
               setDashPeriod={setDashPeriod}
               dashLoading={dashLoading}
+              dashFilterMonth={dashFilterMonth}
+              setDashFilterMonth={setDashFilterMonth}
+              dashFilterYear={dashFilterYear}
+              setDashFilterYear={setDashFilterYear}
               isAdmin={isAdmin}
               selectedCrewDetail={selectedCrewDetail}
               setSelectedCrewDetail={setSelectedCrewDetail}
@@ -1226,12 +1213,6 @@ export default function Home() {
               openEditSale={openEditSale}
               setDeleteConfirm={setDeleteConfirm}
               setActiveTab={setActiveTab}
-            />
-
-            {/* ─── Jobdesk Tab ─────────────────────────── */}
-            <JobdeskTab
-              groups={groups}
-              crews={mgmtCrews}
             />
 
             {/* ─── Export Tab ─────────────────────────── */}
@@ -1421,7 +1402,7 @@ export default function Home() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="fixed bottom-20 right-4 sm:right-6 z-40 w-10 h-10 rounded-full bg-[#E14227] hover:bg-[#B8321E] text-white shadow-lg shadow-[#E14227]/25 flex items-center justify-center transition-colors"
+            className="fixed bottom-36 md:bottom-24 right-4 sm:right-8 z-40 w-10 h-10 rounded-full bg-[#E14227] hover:bg-[#B8321E] text-white shadow-lg shadow-[#E14227]/25 flex items-center justify-center transition-colors"
             aria-label="Back to top"
           >
             <ChevronUp className="w-5 h-5" />
@@ -1619,6 +1600,95 @@ export default function Home() {
 
       </div>
       </div>
+
+      {/* ═══ FULL PAGE OVERLAY: JOBDESK ═══ */}
+      <AnimatePresence>
+        {activeTab === 'jobdesk' && (
+          <motion.div
+            key="jobdesk-fullpage"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="fixed inset-0 z-[100] bg-[#F0EAD6] dark:bg-[#1A1A1B] overflow-y-auto"
+          >
+            <div className="absolute inset-0 bg-dot-pattern pointer-events-none" aria-hidden="true" />
+            <div className="relative z-10 min-h-screen flex flex-col">
+              {/* ─── Slim Header ─── */}
+              <header className="sticky top-0 z-50 bg-white/70 dark:bg-[#1A1A1B]/80 backdrop-blur-2xl border-b border-border/50">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+                  <div className="flex items-center justify-between h-14 sm:h-16">
+                    <div className="flex items-center gap-2.5 sm:gap-3">
+                      <Button
+                        variant="ghost" size="icon"
+                        onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                        className="h-9 w-9 rounded-full hover:bg-muted"
+                        aria-label="Kembali"
+                      >
+                        <ArrowLeft className="w-5 h-5" />
+                      </Button>
+                      <div className="flex items-center gap-2.5">
+                        <img src="/logo.png" alt="3SC CMS" className="w-8 h-8 rounded-xl object-cover" />
+                        <div className="hidden xs:block">
+                          <h1 className="text-sm sm:text-base font-extrabold tracking-tight flex items-center gap-2">
+                            <Briefcase className="w-4 h-4 text-[#E14227]" />
+                            <span className="bg-gradient-to-r from-[#E14227] via-[#D4956B] to-[#9DB1CC] dark:from-[#E14227] dark:via-[#D4956B] dark:to-[#9DB1CC] bg-clip-text text-transparent">Jobdesk Harian</span>
+                          </h1>
+                          <p className="text-[9px] sm:text-[10px] text-muted-foreground font-medium -mt-0.5">{dateStr} · Kelola tugas harian crew</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-muted" onClick={cycleTheme}>
+                            {mounted ? (
+                              <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.2 }}>
+                                {theme === 'system' ? <Monitor className="w-4 h-4" /> : resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                              </motion.span>
+                            ) : (
+                              <div className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" sideOffset={6}>
+                          {mounted ? (theme === 'light' ? 'Light Mode' : theme === 'dark' ? 'Dark Mode' : `System (${resolvedTheme})`) : '...'}
+                        </TooltipContent>
+                      </Tooltip>
+                      {isAdmin && (
+                        <Badge variant="outline" className="bg-[#E14227]/10 text-[#E14227] border-[#E14227]/30 dark:bg-[#E14227]/20 dark:text-[#E14227] dark:border-[#E14227]/40 text-[10px] px-2 py-0.5">
+                          <Shield className="w-3 h-3 mr-1" /> Admin
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </header>
+
+              {/* ─── Jobdesk Content ─── */}
+              <main className="flex-1 pb-24 md:pb-6">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
+                  <JobdeskTab isAdmin={isAdmin} />
+                </div>
+              </main>
+
+              {/* ─── Mobile Bottom Bar (Jobdesk) ─── */}
+              <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#1A1A1B]/90 backdrop-blur-2xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+                <div className="flex items-center justify-center px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                  <Button
+                    variant="outline"
+                    onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                    className="flex items-center gap-2 rounded-full px-6 h-10 border-border/60 bg-muted/30"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span className="text-sm font-medium">Kembali ke Dashboard</span>
+                  </Button>
+                </div>
+              </nav>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   )
 }

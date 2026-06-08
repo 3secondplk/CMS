@@ -16,7 +16,6 @@ import {
   Package, PartyPopper, FileSpreadsheet, Edit2, X,
   ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronRight,
   SlidersHorizontal, ChevronDown, Zap, Trophy, BarChart3,
-  PackageSearch, FileUp,
 } from 'lucide-react'
 import { fmtRp, fmtNum, fadeIn, stagger, AnimatedCounter, SkeletonRow, timeAgo, getDeptColor, getPageNumbers, getWeekRange, getMonthRange } from '@/lib/cms-utils'
 import type { ClaimSale, Crew } from '@/lib/cms-types'
@@ -829,26 +828,7 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                 </div>
               ) : displaySales.length === 0 ? (
                 claimShowClaimed === 'unclaimed' ? (
-                  claimTotal === 0 ? (
-                    // No data at all — show generic empty state
-                    <div className="text-center py-12">
-                      <motion.div
-                        animate={{ y: [0, -6, 0] }}
-                        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                        className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[#E6BAA3]/60 to-[#D4956B]/60 dark:from-[#B8321E]/20 dark:to-[#B8321E]/20 flex items-center justify-center"
-                      >
-                        <PackageSearch className="w-10 h-10 text-[#D4956B] dark:text-[#E6BAA3]" />
-                      </motion.div>
-                      <h3 className="text-base font-bold text-foreground mb-1">Belum Ada Data Penjualan</h3>
-                      <p className="text-sm text-muted-foreground mb-3 max-w-xs mx-auto">Upload file Excel penjualan untuk mulai mencatat data</p>
-                      <Button onClick={() => setShowUploadModal(true)} size="sm" className="bg-[#E14227] hover:bg-[#E14227]/90 text-white">
-                        <FileUp className="w-4 h-4 mr-1.5" />
-                        Upload Penjualan
-                      </Button>
-                    </div>
-                  ) : (
-                    // There is data but all claimed — show celebration
-                    <div className="text-center py-12 relative overflow-hidden">
+                  <div className="text-center py-12 relative overflow-hidden">
                     {/* Confetti-like decorative elements */}
                     <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
                       {[
@@ -908,7 +888,6 @@ const ClaimsTab = React.memo(function ClaimsTab(props: ClaimsTabProps) {
                       <span className="text-xs font-semibold text-[#B8321E] dark:text-[#F07050]">Kerja bagus, semua terselesaikan!</span>
                     </motion.div>
                   </div>
-                  )
                 ) : claimShowClaimed === 'claimed' ? (
                   <div className="text-center py-12">
                     <motion.div

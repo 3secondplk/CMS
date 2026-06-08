@@ -1,201 +1,175 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
 import { logActivity } from '@/lib/activity-logger'
 
-// WIB date helper (server-side)
-function getWIBToday(): string {
-  const now = new Date()
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000
-  const wib = new Date(utc + 7 * 3600000)
-  return `${wib.getFullYear()}-${String(wib.getMonth() + 1).padStart(2, '0')}-${String(wib.getDate()).padStart(2, '0')}`
-}
-
-// GET /api/jobdesk — list today's jobdesks (or by date/group filter)
+// GET /api/jobdesk?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&groupId=xxx&crewId=xxx&status=xxx
+// PUBLIC — anyone (crew/admin) can view jobdesks
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const date = searchParams.get('date') || getWIBToday()
-  const groupId = searchParams.get('groupId')
+  try {
+    const { searchParams } = new URL(request.url)
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
+    const groupId = searchParams.get('groupId')
+    const crewId = searchParams.get('crewId')
+    const status = searchParams.get('status')
+    const priority = searchParams.get('priority')
 
-  const where: Record<string, unknown> = { jobDate: date }
-  if (groupId) where.groupId = groupId
+    const where: Record<string, unknown> = {}
 
-  const jobdesks = await db.jobdesk.findMany({
-    where,
-    include: {
-      group: { select: { id: true, name: true, logo: true } },
-      crew: { select: { id: true, name: true, photo: true, employeeId: true } },
-      verifiedByAdmin: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  })
-
-  // Get summary stats
-  const allGroups = await db.group.findMany({
-    select: {
-      id: true, name: true, logo: true,
-      crews: { select: { id: true, name: true, photo: true } },
-      _count: { select: { jobdesks: { where: { jobDate: date } } } },
-    },
-  })
-
-  // Per-group stats — single aggregated query (eliminates N+1)
-  const allJobdeskStats = await db.jobdesk.findMany({
-    where: { jobDate: date },
-    select: { groupId: true, status: true, verificationPercent: true },
-  })
-
-  const statsByGroup = new Map<string, { total: number; completed: number; inProgress: number; pending: number; verificationSum: number }>()
-  for (const j of allJobdeskStats) {
-    const s = statsByGroup.get(j.groupId) || { total: 0, completed: 0, inProgress: 0, pending: 0, verificationSum: 0 }
-    s.total++
-    if (j.status === 'completed') s.completed++
-    else if (j.status === 'in_progress') s.inProgress++
-    else s.pending++
-    s.verificationSum += j.verificationPercent
-    statsByGroup.set(j.groupId, s)
-  }
-
-  const groupStats = allGroups.map((g) => {
-    const s = statsByGroup.get(g.id)
-    const total = s?.total || 0
-    return {
-      groupId: g.id,
-      groupName: g.name,
-      groupLogo: g.logo,
-      crewCount: g.crews.length,
-      crews: g.crews,
-      total,
-      completed: s?.completed || 0,
-      inProgress: s?.inProgress || 0,
-      pending: s?.pending || 0,
-      avgVerification: total > 0 ? Math.round((s?.verificationSum || 0) / total) : 0,
+    if (dateFrom || dateTo) {
+      const dateFilter: Record<string, unknown> = {}
+      if (dateFrom) dateFilter.gte = dateFrom
+      if (dateTo) dateFilter.lte = dateTo
+      where.date = dateFilter
     }
-  })
 
-  // Overall summary
-  const totalJobdesks = jobdesks.length
-  const completedCount = jobdesks.filter(j => j.status === 'completed').length
-  const pendingCount = jobdesks.filter(j => j.status === 'pending').length
-  const inProgressCount = jobdesks.filter(j => j.status === 'in_progress').length
-  const avgVerification = totalJobdesks > 0
-    ? Math.round(jobdesks.reduce((s, j) => s + j.verificationPercent, 0) / totalJobdesks)
-    : 0
+    if (groupId) where.groupId = groupId
+    if (crewId) where.crewId = crewId
+    if (status) where.status = status
+    if (priority) where.priority = priority
 
-  return NextResponse.json({
-    jobdesks,
-    summary: {
-      total: totalJobdesks,
-      completed: completedCount,
-      pending: pendingCount,
-      inProgress: inProgressCount,
-      avgVerification,
-    },
-    groupStats,
-    date,
-  })
+    const jobdesks = await db.jobdesk.findMany({
+      where,
+      include: {
+        group: { select: { id: true, name: true, logo: true } },
+        crew: { select: { id: true, name: true, photo: true, employeeId: true } },
+      },
+      orderBy: [{ date: 'desc' }, { order: 'asc' }, { createdAt: 'desc' }],
+    })
+
+    return NextResponse.json(jobdesks)
+  } catch (error) {
+    console.error('Get jobdesks error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+  }
 }
 
-// POST /api/jobdesk — create new jobdesk
+// POST /api/jobdesk — Create new jobdesk
+// PUBLIC — crew can add jobdesk without login (pilih crew dari dropdown)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { groupId, crewId, title, description, priority, crewName } = body
+    const { title, description, date, priority, status, groupId, crewId, order } = body
 
-    if (!groupId || !title) {
-      return NextResponse.json({ error: 'Group dan judul wajib diisi' }, { status: 400 })
+    if (!title || !date) {
+      return NextResponse.json({ error: 'Judul dan tanggal harus diisi' }, { status: 400 })
     }
 
-    // Validate group exists
-    const group = await db.group.findUnique({ where: { id: groupId } })
-    if (!group) return NextResponse.json({ error: 'Group tidak ditemukan' }, { status: 404 })
-
-    // Validate crew if provided
-    if (crewId) {
-      const crew = await db.crew.findUnique({ where: { id: crewId } })
-      if (!crew) return NextResponse.json({ error: 'Crew tidak ditemukan' }, { status: 404 })
-    }
+    // Get max order for the date
+    const maxOrder = await db.jobdesk.findFirst({
+      where: { date },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    })
 
     const jobdesk = await db.jobdesk.create({
       data: {
-        groupId,
+        title: title.trim(),
+        description: description?.trim() || null,
+        date,
+        priority: priority || 'regular',
+        status: status || 'pending',
+        groupId: groupId || null,
         crewId: crewId || null,
-        title,
-        description: description || null,
-        priority: priority || 'medium',
-        jobDate: getWIBToday(),
+        order: order ?? ((maxOrder?.order ?? -1) + 1),
       },
       include: {
         group: { select: { id: true, name: true, logo: true } },
-        crew: { select: { id: true, name: true, photo: true } },
+        crew: { select: { id: true, name: true, photo: true, employeeId: true } },
       },
     })
 
-    await logActivity('CREATE_JOBDESK', `Membuat jobdesk "${title}" di ${group.name}`, null, null, JSON.stringify({ adminName: crewName || 'Crew' }))
+    // Log activity (best-effort, skip if not authenticated)
+    try {
+      const auth = await requireAuth()
+      if (auth) {
+        logActivity('CREATE_JOBDESK', {
+          description: `Tambah jobdesk: ${title}`,
+          details: { title, date, priority, groupId, crewId },
+        }).catch(() => {})
+      }
+    } catch { /* not authenticated — skip logging */ }
 
-    return NextResponse.json({ jobdesk, message: 'Jobdesk berhasil dibuat' })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Gagal membuat jobdesk' }, { status: 500 })
+    return NextResponse.json(jobdesk, { status: 201 })
+  } catch (error) {
+    console.error('Create jobdesk error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
-// PUT /api/jobdesk — update jobdesk (status, verification, notes)
+// PUT /api/jobdesk — Update jobdesk (ADMIN ONLY: edit, status change, drag)
 export async function PUT(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
+
     const body = await request.json()
-    const { id, status, crewId, title, description, priority, verificationPercent, notes, crewName } = body
+    const { id, title, description, date, priority, status, groupId, crewId, order } = body
 
-    if (!id) return NextResponse.json({ error: 'ID jobdesk wajib' }, { status: 400 })
-
-    const existing = await db.jobdesk.findUnique({ where: { id }, include: { group: true, crew: true } })
-    if (!existing) return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
-
-    const updateData: Record<string, unknown> = {}
-    if (status !== undefined) {
-      updateData.status = status
-      if (status === 'completed') updateData.completedAt = new Date()
+    if (!id) {
+      return NextResponse.json({ error: 'ID jobdesk harus diisi' }, { status: 400 })
     }
-    if (crewId !== undefined) updateData.crewId = crewId || null
-    if (title !== undefined) updateData.title = title
-    if (description !== undefined) updateData.description = description || null
+
+    const updateData: Record<string, unknown> = { updatedAt: new Date() }
+    if (title !== undefined) updateData.title = title.trim()
+    if (description !== undefined) updateData.description = description?.trim() || null
+    if (date !== undefined) updateData.date = date
     if (priority !== undefined) updateData.priority = priority
-    if (verificationPercent !== undefined) {
-      updateData.verificationPercent = Math.max(0, Math.min(100, verificationPercent))
-      updateData.verifiedByAdminId = null
-    }
-    if (notes !== undefined) updateData.notes = notes || null
+    if (status !== undefined) updateData.status = status
+    if (groupId !== undefined) updateData.groupId = groupId || null
+    if (crewId !== undefined) updateData.crewId = crewId || null
+    if (order !== undefined) updateData.order = order
 
-    const updated = await db.jobdesk.update({
+    const jobdesk = await db.jobdesk.update({
       where: { id },
       data: updateData,
       include: {
         group: { select: { id: true, name: true, logo: true } },
         crew: { select: { id: true, name: true, photo: true, employeeId: true } },
-        verifiedByAdmin: { select: { id: true, name: true } },
       },
     })
 
-    const actionDesc = status === 'completed' ? 'Menyelesaikan' : 'Memperbarui'
-    await logActivity('UPDATE_JOBDESK', `${actionDesc} jobdesk "${existing.title}"`, existing.crew?.name, null, JSON.stringify({ adminName: crewName || existing.crew?.name || 'Crew' }))
-
-    return NextResponse.json({ jobdesk: updated, message: 'Jobdesk berhasil diperbarui' })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Gagal memperbarui jobdesk' }, { status: 500 })
+    return NextResponse.json(jobdesk)
+  } catch (error: unknown) {
+    console.error('Update jobdesk error:', error)
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
+      return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+    }
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
-// DELETE /api/jobdesk — delete a jobdesk
+// DELETE /api/jobdesk?id=xxx (ADMIN ONLY)
 export async function DELETE(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get('id')
+  try {
+    const auth = await requireAuth()
+    if (!auth) return auth as NextResponse
 
-  if (!id) return NextResponse.json({ error: 'ID jobdesk wajib' }, { status: 400 })
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
 
-  const existing = await db.jobdesk.findUnique({ where: { id }, include: { group: true, crew: true } })
-  if (!existing) return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+    if (!id) {
+      return NextResponse.json({ error: 'ID jobdesk harus diisi' }, { status: 400 })
+    }
 
-  await db.jobdesk.delete({ where: { id } })
+    const existing = await db.jobdesk.findUnique({ where: { id } })
 
-  await logActivity('DELETE_JOBDESK', `Menghapus jobdesk "${existing.title}"`, existing.crew?.name, null, JSON.stringify({ adminName: existing.crew?.name || 'Crew' }))
+    if (existing) {
+      logActivity('DELETE_JOBDESK', {
+        description: `Hapus jobdesk: ${existing.title}`,
+        details: { title: existing.title, date: existing.date },
+      }).catch(() => {})
+    }
 
-  return NextResponse.json({ message: 'Jobdesk berhasil dihapus' })
+    await db.jobdesk.delete({ where: { id } })
+
+    return NextResponse.json({ success: true })
+  } catch (error: unknown) {
+    console.error('Delete jobdesk error:', error)
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
+      return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+    }
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+  }
 }

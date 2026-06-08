@@ -78,7 +78,7 @@ export interface DashboardData {
 }
 
 export interface Crew {
-  id: string; name: string; photo: string | null; employeeId: string; groupId: string; label: string
+  id: string; name: string; photo: string | null; employeeId: string; groupId: string
   group: { id: string; name: string }; totalSales: number; totalQty: number; todaySales: number; transactionCount: number
 }
 
@@ -146,73 +146,8 @@ export interface ClaimFilters {
 
 /** Delete confirmation dialog state */
 export interface DeleteConfirmState {
-  type: 'crew' | 'group' | 'sale' | 'batch-sale' | 'jobdesk'
+  type: 'crew' | 'group' | 'sale' | 'batch-sale'
   ids?: string[]
   id?: string
   name: string
-}
-
-// ─── Jobdesk Types ─────────────────────────────────────
-
-export interface Jobdesk {
-  id: string
-  groupId: string
-  crewId: string | null
-  title: string
-  description: string | null
-  status: 'pending' | 'in_progress' | 'completed'
-  priority: 'low' | 'medium' | 'high'
-  verificationPercent: number
-  verifiedByAdminId: string | null
-  notes: string | null
-  jobDate: string
-  completedAt: string | null
-  createdAt: string
-  updatedAt: string
-  group: { id: string; name: string; logo: string | null }
-  crew: { id: string; name: string; photo: string | null; employeeId: string } | null
-  verifiedByAdmin: { id: string; name: string } | null
-}
-
-export interface JobdeskSummary {
-  total: number
-  completed: number
-  pending: number
-  inProgress: number
-  avgVerification: number
-}
-
-export interface JobdeskGroupStat {
-  groupId: string
-  groupName: string
-  groupLogo: string | null
-  crewCount: number
-  crews: Array<{ id: string; name: string; photo: string | null }>
-  total: number
-  completed: number
-  inProgress: number
-  pending: number
-  avgVerification: number
-}
-
-export interface Shift {
-  name: string
-  start: string
-  end: string
-}
-
-export interface ShiftSetting {
-  id: string
-  shifts: Shift[]
-  timezone: string
-}
-
-export interface CalendarDayData {
-  date: string
-  total: number
-  completed: number
-  inProgress: number
-  pending: number
-  avgVerification: number
-  jobdesks: Jobdesk[]
 }

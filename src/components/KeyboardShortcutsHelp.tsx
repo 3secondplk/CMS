@@ -107,9 +107,6 @@ export default function KeyboardShortcutsHelp({ open, onOpenChange }: KeyboardSh
           <ShortcutGroup title="Actions" icon={ArrowRight}>
             <ShortcutRow keys={[<Kbd key={modKey('U')}>{modKey('U')}</Kbd>]} description="Upload data (Claims tab)" />
             <ShortcutRow keys={[<Kbd key={modKey('E')}>{modKey('E')}</Kbd>]} description="Export CSV (Claims tab)" />
-            <ShortcutRow keys={[<Kbd key={modKey('N')}>{modKey('N')}</Kbd>]} description="New jobdesk (Jobdesk tab)" />
-            <ShortcutRow keys={[<Kbd key={modKey('A')}>{modKey('A')}</Kbd>]} description="Select all jobdesks" />
-            <ShortcutRow keys={[<Kbd key="Del">Del</Kbd>]} description="Delete selected jobdesks" />
             <ShortcutRow keys={[<Kbd key="T">T</Kbd>]} description="Toggle theme" />
           </ShortcutGroup>
 

@@ -1,11 +1,7 @@
 // ─────────────────────────────────────────────────────────
-// CMS Crew Management System — Prisma Schema
+// CMS Crew Management System — Prisma Schema (SQLite)
 // Developer: Ahtjong Labs
-// Database: SQLite (dev) / PostgreSQL (prod)
 // ─────────────────────────────────────────────────────────
-// To switch database, change provider below AND update .env:
-//   SQLite:     provider = "sqlite"
-//   PostgreSQL: provider = "postgresql"
 
 generator client {
   provider = "prisma-client-js"
@@ -21,40 +17,36 @@ model Admin {
   username  String   @unique
   password  String
   name      String   @default("Admin")
-  jobdeskVerifications Jobdesk[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Group {
-  id             String    @id @default(cuid())
+  id             String  @id @default(cuid())
   name           String
   logo           String?
-  monthlyTarget  Float     @default(0)
-  week1Target    Float     @default(0)
-  week2Target    Float     @default(0)
-  week3Target    Float     @default(0)
-  week4Target    Float     @default(0)
+  monthlyTarget  Float   @default(0)
+  week1Target    Float   @default(0)
+  week2Target    Float   @default(0)
+  week3Target    Float   @default(0)
+  week4Target    Float   @default(0)
   crews          Crew[]
-  jobdesks       Jobdesk[]
-  jobdeskTemplates JobdeskTemplate[]
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  jobdesks        Jobdesk[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Crew {
-  id         String    @id @default(cuid())
+  id         String  @id @default(cuid())
   name       String
   photo      String?
-  employeeId String    @unique
-  label      String    @default("Crew") // Crew, Cashier, SPV, etc.
+  employeeId String  @unique
   groupId    String
-  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sales      Sale[]
-  jobdesks   Jobdesk[]
-  jobdeskTemplates JobdeskTemplate[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  jobdesks    Jobdesk[] @relation("CrewJobdesks")
+  createdAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Sale {
@@ -95,50 +87,22 @@ model ActivityLog {
   createdAt   DateTime @default(now())
 }
 
-// ─── Jobdesk / Daily Task Management ─────────────────────
-
-model ShiftSetting {
-  id         String   @id @default(cuid())
-  shifts     String   @default("[{\"name\":\"Shift 1\",\"start\":\"08:00\",\"end\":\"17:00\"}]") // JSON array of shift objects
-  timezone   String   @default("Asia/Jakarta")
-  // Legacy columns (kept for backward compatibility, do NOT remove)
-  shiftName  String?
-  shiftStart String?
-  shiftEnd   String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-}
-
+// ─── Jobdesk / Daily Task Management ──────────────────
 model Jobdesk {
-  id                 String    @id @default(cuid())
-  groupId            String
-  group              Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  crewId             String?
-  crew               Crew?     @relation(fields: [crewId], references: [id], onDelete: SetNull)
-  title              String
-  description        String?
-  status             String    @default("pending") // pending, in_progress, completed
-  priority           String    @default("medium") // low, medium, high
-  verificationPercent Int      @default(0)
-  verifiedByAdminId  String?
-  verifiedByAdmin    Admin?    @relation(fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
-  notes              String?
-  jobDate            String    // YYYY-MM-DD in WIB (UTC+7)
-  completedAt        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-}
-
-model JobdeskTemplate {
   id          String   @id @default(cuid())
   title       String
   description String?
-  priority    String   @default("medium") // low, medium, high
-  groupId     String
-  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  crewId      String?
-  crew        Crew?    @relation(fields: [crewId], references: [id], onDelete: SetNull)
-  isActive    Boolean  @default(true)
+  date        String                    // YYYY-MM-DD format
+  priority    String   @default("regular") // "regular" or "urgent"
+  status      String   @default("pending") // "pending", "in_progress", "completed"
+  order       Int      @default(0)         // for drag-and-drop ordering within a date
+  groupId     String?                   // assigned Group/Zoning
+  group       Group?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  crewId      String?                   // assigned Crew
+  crew        Crew?    @relation("CrewJobdesks", fields: [crewId], references: [id], onDelete: SetNull)
+  validatedByAdmin Boolean @default(false) // admin validation checkbox
+  validatedBy  String?                   // admin who validated
+  validatedAt  DateTime?                 // when admin validated
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

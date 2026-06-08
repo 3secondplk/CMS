@@ -10,23 +10,32 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') || 'today' // today, week, month
     const groupId = searchParams.get('groupId')
+    const filterMonth = searchParams.get('month') ? parseInt(searchParams.get('month')!) : null
+    const filterYear = searchParams.get('year') ? parseInt(searchParams.get('year')!) : null
 
     // Get current date in WIB (GMT+7) — correctly strip local offset first
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
     
-    const currentMonth = wibNow.getMonth()
-    const currentYear = wibNow.getFullYear()
-    const dayOfMonth = wibNow.getDate()
+    // Override month/year if filter is applied
+    const currentMonth = filterMonth !== null ? filterMonth - 1 : wibNow.getMonth()
+    const currentYear = filterYear !== null ? filterYear : wibNow.getFullYear()
+    const isCustomMonth = filterMonth !== null || filterYear !== null
+    const dayOfMonth = isCustomMonth ? 15 : wibNow.getDate() // midpoint for custom month
     const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`
 
     // Determine current week
     let currentWeek = 1
-    if (dayOfMonth <= 7) currentWeek = 1
-    else if (dayOfMonth <= 14) currentWeek = 2
-    else if (dayOfMonth <= 21) currentWeek = 3
-    else currentWeek = 4
+    if (isCustomMonth) {
+      // For custom month, use week 4 (full month context)
+      currentWeek = 4
+    } else {
+      if (dayOfMonth <= 7) currentWeek = 1
+      else if (dayOfMonth <= 14) currentWeek = 2
+      else if (dayOfMonth <= 21) currentWeek = 3
+      else currentWeek = 4
+    }
 
     const weekStart = (currentWeek - 1) * 7 + 1
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
@@ -483,6 +492,7 @@ export async function GET(request: NextRequest) {
         weekEnd,
         currentMonth,
         currentYear,
+        isCustomMonth,
       },
       claimedCount: claimedAgg,
       unclaimedCount: unclaimedAgg,
