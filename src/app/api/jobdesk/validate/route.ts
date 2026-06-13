@@ -30,17 +30,30 @@ export async function PUT(request: NextRequest) {
       },
     })
 
+    // Normalize response
+    const validStatuses = ['pending', 'in_progress', 'completed']
+    const normalized = {
+      ...jobdesk,
+      status: validStatuses.includes(jobdesk.status) ? jobdesk.status : 'pending',
+    }
+
     // Log activity
     logActivity(validated !== false ? 'VALIDATE_JOBDESK' : 'UNVALIDATE_JOBDESK', {
       description: `${validated !== false ? 'Validasi' : 'Batalkan validasi'} jobdesk: ${jobdesk.title}`,
       details: { title: jobdesk.title, date: jobdesk.date },
     }).catch(() => {})
 
-    return NextResponse.json(jobdesk)
+    return NextResponse.json(normalized)
   } catch (error: unknown) {
     console.error('Validate jobdesk error:', error)
-    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
-      return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code: string }).code
+      if (code === 'P2025') {
+        return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+      }
+      if (code === 'P2021' || code === 'P2022') {
+        return NextResponse.json({ error: 'Database belum siap. Jalankan: bun run db:push' }, { status: 503 })
+      }
     }
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }

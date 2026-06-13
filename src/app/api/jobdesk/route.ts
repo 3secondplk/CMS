@@ -38,7 +38,16 @@ export async function GET(request: NextRequest) {
       orderBy: [{ date: 'desc' }, { order: 'asc' }, { createdAt: 'desc' }],
     })
 
-    return NextResponse.json(jobdesks)
+    // Normalize: ensure status & priority always have valid values
+    const validStatuses = ['pending', 'in_progress', 'completed']
+    const validPriorities = ['regular', 'urgent']
+    const normalized = jobdesks.map(j => ({
+      ...j,
+      status: validStatuses.includes(j.status) ? j.status : 'pending',
+      priority: validPriorities.includes(j.priority) ? j.priority : 'regular',
+    }))
+
+    return NextResponse.json(normalized)
   } catch (error) {
     console.error('Get jobdesks error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })

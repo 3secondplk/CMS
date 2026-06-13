@@ -17,6 +17,12 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Status tidak valid' }, { status: 400 })
     }
 
+    // Verify record exists first
+    const existing = await db.jobdesk.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+    }
+
     const jobdesk = await db.jobdesk.update({
       where: { id },
       data: { status, updatedAt: new Date() },
@@ -26,12 +32,25 @@ export async function PUT(request: NextRequest) {
       },
     })
 
-    return NextResponse.json(jobdesk)
+    // Normalize response
+    const normalized = {
+      ...jobdesk,
+      status: validStatuses.includes(jobdesk.status) ? jobdesk.status : 'pending',
+    }
+
+    return NextResponse.json(normalized)
   } catch (error: unknown) {
     console.error('Update jobdesk status error:', error)
-    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
-      return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code: string }).code
+      if (code === 'P2025') {
+        return NextResponse.json({ error: 'Jobdesk tidak ditemukan' }, { status: 404 })
+      }
+      // Table or column might not exist
+      if (code === 'P2021' || code === 'P2022') {
+        return NextResponse.json({ error: 'Database belum siap. Jalankan: bun run db:push' }, { status: 503 })
+      }
     }
-    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+    return NextResponse.json({ error: 'Terjadi kesalahan saat mengubah status' }, { status: 500 })
   }
 }

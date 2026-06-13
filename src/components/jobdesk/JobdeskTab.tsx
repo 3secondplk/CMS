@@ -62,15 +62,29 @@ interface JobdeskTabProps {
 const fadeIn = { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -16 } }
 const stagger = { animate: { transition: { staggerChildren: 0.04 } } }
 
+const VALID_STATUSES = ['pending', 'in_progress', 'completed'] as const
+type StatusType = typeof VALID_STATUSES[number]
+
 const statusConfig = {
   pending: { label: 'Pending', color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700', icon: Circle, dotColor: 'bg-slate-400' },
   in_progress: { label: 'Proses', color: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200 dark:border-amber-800', icon: PlayCircle, dotColor: 'bg-amber-500' },
   completed: { label: 'Selesai', color: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800', icon: CheckCircle2, dotColor: 'bg-emerald-500' },
-}
+} as const
+
+const VALID_PRIORITIES = ['regular', 'urgent'] as const
+type PriorityType = typeof VALID_PRIORITIES[number]
 
 const priorityConfig = {
   regular: { label: 'Regular', color: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border-blue-200 dark:border-blue-800', icon: Clock },
   urgent: { label: 'Urgent', color: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400 border-red-200 dark:border-red-800', icon: AlertTriangle },
+} as const
+
+// Safe accessor — never crashes even if status/priority is null/undefined/invalid
+function getStatus(status: unknown) {
+  return VALID_STATUSES.includes(status as StatusType) ? status as StatusType : 'pending'
+}
+function getPriority(priority: unknown) {
+  return VALID_PRIORITIES.includes(priority as PriorityType) ? priority as PriorityType : 'regular'
 }
 
 const dayNamesShort = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
@@ -569,7 +583,7 @@ export default function JobdeskTab({ isAdmin }: JobdeskTabProps) {
                           }}
                           onClick={(e) => { e.stopPropagation(); if (isAdmin) openEditDialog(task) }}
                           className={`group ${isAdmin ? 'cursor-pointer' : 'cursor-default'} rounded-md px-1.5 py-0.5 text-[10px] font-medium truncate transition-all hover:shadow-sm border ${
-                            task.priority === 'urgent'
+                            getPriority(task.priority) === 'urgent'
                               ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-400'
                               : 'bg-white dark:bg-[#2A2A2B] border-border/40 text-foreground'
                           } ${task.validatedByAdmin ? 'ring-1 ring-emerald-400/50' : ''}`}
@@ -586,7 +600,7 @@ export default function JobdeskTab({ isAdmin }: JobdeskTabProps) {
                               <Building2 className="w-3 h-3 text-muted-foreground/50 shrink-0" />
                             )}
                             <span className="truncate flex-1">{task.title}</span>
-                            {task.priority === 'urgent' && <AlertTriangle className="w-2.5 h-2.5 text-red-500 shrink-0" />}
+                            {getPriority(task.priority) === 'urgent' && <AlertTriangle className="w-2.5 h-2.5 text-red-500 shrink-0" />}
                           </div>
                         </div>
                       ))}
@@ -665,8 +679,8 @@ export default function JobdeskTab({ isAdmin }: JobdeskTabProps) {
                   ) : (
                     <div className="space-y-2">
                       {selectedDateJobdesks.map(item => {
-                        const sCfg = statusConfig[item.status as keyof typeof statusConfig] || statusConfig.pending
-                        const pCfg = priorityConfig[item.priority as keyof typeof priorityConfig] || priorityConfig.regular
+                        const sCfg = statusConfig[getStatus(item.status)]
+                        const pCfg = priorityConfig[getPriority(item.priority)]
                         return (
                           <motion.div
                             key={item.id}
@@ -728,7 +742,7 @@ export default function JobdeskTab({ isAdmin }: JobdeskTabProps) {
                                 <div className="flex items-center gap-1">
                                   {(['pending', 'in_progress', 'completed'] as const).map(s => {
                                     const sc = statusConfig[s]
-                                    const isActive = item.status === s
+                                    const isActive = getStatus(item.status) === s
                                     return (
                                       <button
                                         key={s}
@@ -885,7 +899,7 @@ export default function JobdeskTab({ isAdmin }: JobdeskTabProps) {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {groups.map(g => {
                 const groupJobdesks = jobdesks.filter(j => j.groupId === g.id)
-                const groupCompleted = groupJobdesks.filter(j => j.status === 'completed').length
+                const groupCompleted = groupJobdesks.filter(j => getStatus(j.status) === 'completed').length
                 const pct = groupJobdesks.length > 0 ? Math.round((groupCompleted / groupJobdesks.length) * 100) : 0
                 return (
                   <div key={g.id} className="bg-muted/30 rounded-xl p-3 border border-border/30">
@@ -1053,8 +1067,8 @@ function JobdeskCard({
   onStatusChange: (id: string, status: string) => void
   onValidate: (id: string, validated: boolean) => void
 }) {
-  const sConfig = statusConfig[item.status as keyof typeof statusConfig] || statusConfig.pending
-  const pConfig = priorityConfig[item.priority as keyof typeof priorityConfig] || priorityConfig.regular
+  const sConfig = statusConfig[getStatus(item.status)]
+  const pConfig = priorityConfig[getPriority(item.priority)]
   const StatusIcon = sConfig.icon
 
   return (
@@ -1072,7 +1086,8 @@ function JobdeskCard({
         {isAdmin ? (
           <button
             onClick={() => {
-              const nextStatus = item.status === 'pending' ? 'in_progress' : item.status === 'in_progress' ? 'completed' : 'pending'
+              const currentStatus = getStatus(item.status)
+              const nextStatus = currentStatus === 'pending' ? 'in_progress' : currentStatus === 'in_progress' ? 'completed' : 'pending'
               onStatusChange(item.id, nextStatus)
             }}
             className="mt-0.5 shrink-0"
