@@ -53,11 +53,11 @@ model Sale {
   id               String   @id @default(cuid())
   crewId           String?
   crew             Crew?    @relation(fields: [crewId], references: [id], onDelete: SetNull)
-  tanggal          String
+  tanggal          String   @default("1970-01-01")
   idPenjualan      String?
   statusRetention  String?
   retentionCode    String?
-  kodeExtend       String
+  kodeExtend       String   @default("")
   brand            String?
   dept             String?
   modul            String?
@@ -92,7 +92,7 @@ model Jobdesk {
   id          String   @id @default(cuid())
   title       String
   description String?
-  date        String                    // YYYY-MM-DD format
+  date        String   @default("1970-01-01") // YYYY-MM-DD format
   priority    String   @default("regular") // "regular" or "urgent"
   status      String   @default("pending") // "pending", "in_progress", "completed"
   order       Int      @default(0)         // for drag-and-drop ordering within a date
