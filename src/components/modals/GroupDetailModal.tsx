@@ -235,7 +235,7 @@ export default function GroupDetailModal({
                               )}
                               {/* Per-week achievements mini bars */}
                               {c.crewWeeklyDetails && c.crewWeeklyDetails.length > 0 && (
-                                <div className="mt-1.5 grid grid-cols-4 gap-1">
+                                <div className="mt-1.5 grid grid-cols-5 gap-1">
                                   {c.crewWeeklyDetails.map((wd) => {
                                     const isCurrentWeek = wd.week === groupDetailData.currentWeek
                                     return (
@@ -342,7 +342,7 @@ export default function GroupDetailModal({
                           </p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-5 gap-2">
                         {groupDetailData.weeklyTargetPcts.map((pct, i) => {
                           const target = groupDetailData.crewWeeklyTargets[i] || 0
                           const isCurrentWeek = (i + 1) === groupDetailData.currentWeek
@@ -535,7 +535,7 @@ export default function GroupDetailModal({
                                   )}
                                   {/* Per-week achievements mini bars */}
                                   {c.crewWeeklyDetails && c.crewWeeklyDetails.length > 0 && (
-                                    <div className="mt-1.5 grid grid-cols-4 gap-1">
+                                    <div className="mt-1.5 grid grid-cols-5 gap-1">
                                       {c.crewWeeklyDetails.map((wd) => {
                                         const isCurrentWeek = wd.week === groupDetailData.currentWeek
                                         return (

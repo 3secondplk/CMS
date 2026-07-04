@@ -21,16 +21,24 @@ export async function GET(request: NextRequest) {
     const dayOfMonth = wibNow.getDate()
     const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`
 
-    // Determine current week
+    // Determine current week (W5 = days 29-end, separated from W4)
     let currentWeek = 1
     if (dayOfMonth <= 7) currentWeek = 1
     else if (dayOfMonth <= 14) currentWeek = 2
     else if (dayOfMonth <= 21) currentWeek = 3
-    else currentWeek = 4
+    else if (dayOfMonth <= 28) currentWeek = 4
+    else currentWeek = 5
 
-    const weekStart = (currentWeek - 1) * 7 + 1
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
-    const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
+    let weekStart: number, weekEnd: number
+    if (currentWeek <= 4) {
+      weekStart = (currentWeek - 1) * 7 + 1
+      weekEnd = Math.min(currentWeek * 7, 28)
+    } else {
+      // Week 5: days 29 to end of month
+      weekStart = 29
+      weekEnd = daysInMonth
+    }
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
     // Get all crews with their groups
@@ -124,42 +132,35 @@ export async function GET(request: NextRequest) {
     const monthStrukMap = new Map(monthStrukRaw.map(r => [r.crewId, Number(r.count)]))
     const allTimeStrukMap = new Map(allTimeStrukRaw.map(r => [r.crewId, Number(r.count)]))
 
-    // Calculate per-week date ranges for all 4 weeks (needed for crewWeeklyDetails)
-    const weekRanges = [1, 2, 3, 4].map(w => {
-      const start = (w - 1) * 7 + 1
-      const end = w === 4 ? daysInMonth : Math.min(w * 7, daysInMonth)
-      const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
-      const endNextDay = new Date(currentYear, currentMonth, end + 1)
-      const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
-      return { week: w, start, end, startStr, endNextDayStr }
-    })
+    // Calculate per-week date ranges for all weeks (needed for crewWeeklyDetails)
+    // W1: 1-7, W2: 8-14, W3: 15-21, W4: 22-28, W5: 29-end (only when month has 29+ days)
+    const weekRanges = daysInMonth >= 29
+      ? [1, 2, 3, 4, 5].map(w => {
+          const start = w <= 4 ? (w - 1) * 7 + 1 : 29
+          const end = w <= 4 ? Math.min(w * 7, 28) : daysInMonth
+          const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
+          const endNextDay = new Date(currentYear, currentMonth, end + 1)
+          const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
+          return { week: w, start, end, startStr, endNextDayStr }
+        })
+      : [1, 2, 3, 4].map(w => {
+          const start = (w - 1) * 7 + 1
+          const end = Math.min(w * 7, daysInMonth)
+          const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
+          const endNextDay = new Date(currentYear, currentMonth, end + 1)
+          const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
+          return { week: w, start, end, startStr, endNextDayStr }
+        })
 
-    // Query per-week aggregation for ALL groups' crews (4 parallel queries)
-    const [week1Agg, week2Agg, week3Agg, week4Agg] = crewIds.length > 0
-      ? await Promise.all([
-          db.sale.groupBy({
-            by: ['crewId'],
-            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[0].startStr, lt: weekRanges[0].endNextDayStr } },
-            _sum: { settle: true },
-          }),
-          db.sale.groupBy({
-            by: ['crewId'],
-            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[1].startStr, lt: weekRanges[1].endNextDayStr } },
-            _sum: { settle: true },
-          }),
-          db.sale.groupBy({
-            by: ['crewId'],
-            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[2].startStr, lt: weekRanges[2].endNextDayStr } },
-            _sum: { settle: true },
-          }),
-          db.sale.groupBy({
-            by: ['crewId'],
-            where: { crewId: { in: crewIds }, tanggal: { gte: weekRanges[3].startStr, lt: weekRanges[3].endNextDayStr } },
-            _sum: { settle: true },
-          }),
-        ])
-      : [[], [], [], []]
-    const weekAggMaps = [week1Agg, week2Agg, week3Agg, week4Agg].map(agg => new Map(agg.map(a => [a.crewId, a._sum.settle ?? 0])))
+    // Query per-week aggregation for ALL groups' crews (parallel queries, dynamic count)
+    const weekAggResults = crewIds.length > 0
+      ? await Promise.all(weekRanges.map(wr => db.sale.groupBy({
+          by: ['crewId'],
+          where: { crewId: { in: crewIds }, tanggal: { gte: wr.startStr, lt: wr.endNextDayStr } },
+          _sum: { settle: true },
+        })))
+      : weekRanges.map(() => [])
+    const weekAggMaps = weekAggResults.map(agg => new Map(agg.map(a => [a.crewId, a._sum.settle ?? 0])))
 
     // Calculate per-crew stats from aggregated data
 
@@ -170,7 +171,7 @@ export async function GET(request: NextRequest) {
         groupInfoMap.set(crew.group.id, {
           monthlyTarget: crew.group.monthlyTarget,
           crewCount: 0,
-          weeklyTargetPcts: [crew.group.week1Target, crew.group.week2Target, crew.group.week3Target, crew.group.week4Target],
+          weeklyTargetPcts: [crew.group.week1Target, crew.group.week2Target, crew.group.week3Target, crew.group.week4Target, crew.group.week5Target],
         })
       }
       groupInfoMap.get(crew.group.id)!.crewCount++
@@ -201,7 +202,7 @@ export async function GET(request: NextRequest) {
       const gInfo = groupInfoMap.get(crew.group.id)
       const crewCount = gInfo?.crewCount ?? 1
       const groupMonthlyTarget = gInfo?.monthlyTarget ?? 0
-      const weeklyPcts = gInfo?.weeklyTargetPcts ?? [0, 0, 0, 0]
+      const weeklyPcts = gInfo?.weeklyTargetPcts ?? [0, 0, 0, 0, 0]
 
       const crewMonthlyTarget = crewCount > 0 ? Math.round(groupMonthlyTarget / crewCount) : 0
       const crewWeeklyTargets = weeklyPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
@@ -209,7 +210,7 @@ export async function GET(request: NextRequest) {
       const crewMonthlyAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((monthTotal / crewMonthlyTarget) * 100), 999) : 0
       const crewWeeklyAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((weekTotal / crewCurrentWeekTarget) * 100), 999) : 0
 
-      // Per-week achievements for this crew (all 4 weeks)
+      // Per-week achievements for this crew (all 5 weeks; W5 only when month has 29+ days)
       const crewWeeklyDetails = weekRanges.map((wr, i) => {
         const weekTarget = crewWeeklyTargets[i]
         const weekTotalForCrew = weekAggMaps[i].get(crew.id) ?? 0
@@ -388,6 +389,7 @@ export async function GET(request: NextRequest) {
         case 2: weekTargetPct = group.week2Target; break
         case 3: weekTargetPct = group.week3Target; break
         case 4: weekTargetPct = group.week4Target; break
+        case 5: weekTargetPct = group.week5Target; break
         default: weekTargetPct = 0
       }
 
@@ -402,10 +404,10 @@ export async function GET(request: NextRequest) {
       // Per-crew target breakdown
       const crewCount = group.crews.length
       const crewMonthlyTarget = crewCount > 0 ? Math.round(group.monthlyTarget / crewCount) : 0
-      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target]
+      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target]
       const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
 
-      // Per-week achievements (all 4 weeks)
+      // Per-week achievements (all 5 weeks; W5 only when month has 29+ days)
       const weeklyDetails = weekRanges.map((wr, i) => {
         const targetPct = weeklyTargetPcts[i]
         const weekTarget = group.monthlyTarget * (targetPct / 100)

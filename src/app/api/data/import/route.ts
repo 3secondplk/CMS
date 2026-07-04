@@ -14,6 +14,7 @@ interface ExportGroup {
   week2Target: number
   week3Target: number
   week4Target: number
+  week5Target: number
   createdAt: string
   updatedAt: string
 }
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
               week2Target: g.week2Target ?? 0,
               week3Target: g.week3Target ?? 0,
               week4Target: g.week4Target ?? 0,
+              week5Target: g.week5Target ?? 0,
             },
           })
           groupIdMap.set(g.id, created.id)

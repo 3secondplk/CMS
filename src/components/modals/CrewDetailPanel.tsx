@@ -195,13 +195,13 @@ export default function CrewDetailPanel({ selectedCrewDetail, setSelectedCrewDet
                     </p>
                   </div>
 
-                  {/* Weekly Targets Grid — All 4 weeks with per-week achievement */}
+                  {/* Weekly Targets Grid — All 5 weeks with per-week achievement */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-1.5">
                       <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="text-xs font-medium">Target Mingguan</span>
                     </div>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-2">
                       {crew.crewWeeklyDetails?.map((wd) => {
                         const isCurrentWeek = wd.week === crew.currentWeek
                         const wColor = getAchievementColor(wd.achievement)

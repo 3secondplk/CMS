@@ -55,7 +55,8 @@ function getCurrentWeek(): number {
   if (day <= 7) return 1
   if (day <= 14) return 2
   if (day <= 21) return 3
-  return 4
+  if (day <= 28) return 4
+  return 5
 }
 
 // ─── Helper: Group color palette ─────────────────────────
@@ -164,7 +165,7 @@ interface ManagementTabProps {
   filteredGroups: Group[]
   handleSaveCrew: (data: { name: string; photo: string; employeeId: string; groupId: string; removePhoto?: boolean }) => void
   handleDeleteCrew: (id: string) => void
-  handleSaveGroup: (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number }) => void
+  handleSaveGroup: (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number; week5Target: number }) => void
   handleDeleteGroup: (id: string) => void
   setDeleteConfirm: (v: { type: 'crew' | 'group' | 'sale' | 'batch-sale'; ids?: string[]; id?: string; name: string } | null) => void
   onImportSuccess?: () => void
@@ -728,6 +729,7 @@ const ManagementTab = React.memo(function ManagementTab({
                         { w: 2, t: group.week2Target },
                         { w: 3, t: group.week3Target },
                         { w: 4, t: group.week4Target },
+                        { w: 5, t: group.week5Target },
                       ]
                       const currentWeekTarget = weekTargets[currentWeek - 1]?.t || 0
 
@@ -775,7 +777,7 @@ const ManagementTab = React.memo(function ManagementTab({
                               </div>
 
                               {/* Week target cards with current week highlight */}
-                              <div className="grid grid-cols-4 gap-1.5">
+                              <div className="grid grid-cols-5 gap-1.5">
                                 {weekTargets.map(week => (
                                   <div
                                     key={week.w}

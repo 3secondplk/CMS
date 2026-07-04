@@ -17,7 +17,8 @@ function getCurrentWeek(): number {
   if (day <= 7) return 1
   if (day <= 14) return 2
   if (day <= 21) return 3
-  return 4
+  if (day <= 28) return 4
+  return 5
 }
 
 const weekBlockColors = [
@@ -25,6 +26,7 @@ const weekBlockColors = [
   'border-[#E6BAA3] bg-[#F0D5C5]/80 dark:border-[#E6BAA3] dark:bg-[#1A1A1B]/30',
   'border-[#9DB1CC] bg-[#B5C7DB]/80 dark:border-[#9DB1CC] dark:bg-[#1A1A1B]/30',
   'border-[#D4956B] bg-[#F0D5C5]/80 dark:border-[#D4956B] dark:bg-[#1A1A1B]/30',
+  'border-[#7E95B3] bg-[#B5C7DB]/80 dark:border-[#7E95B3] dark:bg-[#1A1A1B]/30',
 ]
 
 const weekActiveRingColors = [
@@ -32,6 +34,7 @@ const weekActiveRingColors = [
   'ring-[#E6BAA3] shadow-[#E6BAA3]/20 dark:ring-[#E6BAA3] dark:shadow-[#E6BAA3]/40',
   'ring-[#9DB1CC] shadow-[#9DB1CC]/20 dark:ring-[#9DB1CC] dark:shadow-[#9DB1CC]/40',
   'ring-[#D4956B] shadow-[#D4956B]/20 dark:ring-[#D4956B] dark:shadow-[#D4956B]/40',
+  'ring-[#7E95B3] shadow-[#7E95B3]/20 dark:ring-[#7E95B3] dark:shadow-[#7E95B3]/40',
 ]
 
 const weekIcons = [
@@ -39,11 +42,12 @@ const weekIcons = [
   'text-[#C49060]',
   'text-[#7E95B3]',
   'text-[#B87D4F]',
+  'text-[#5B7396]',
 ]
 
 export default function GroupForm({ group, onSave, onCancel }: {
   group?: Group
-  onSave: (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number }) => void
+  onSave: (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number; week5Target: number }) => void
   onCancel: () => void
 }) {
   const [form, setForm] = useState({
@@ -53,14 +57,15 @@ export default function GroupForm({ group, onSave, onCancel }: {
     week1Target: group?.week1Target?.toString() || '20',
     week2Target: group?.week2Target?.toString() || '25',
     week3Target: group?.week3Target?.toString() || '25',
-    week4Target: group?.week4Target?.toString() || '30',
+    week4Target: group?.week4Target?.toString() || '25',
+    week5Target: group?.week5Target?.toString() || '5',
   })
   const [touched, setTouched] = useState(false)
 
   const currentWeek = getCurrentWeek()
 
-  const weekKeys = ['week1Target', 'week2Target', 'week3Target', 'week4Target'] as const
-  const weekLabels = ['W1', 'W2', 'W3', 'W4']
+  const weekKeys = ['week1Target', 'week2Target', 'week3Target', 'week4Target', 'week5Target'] as const
+  const weekLabels = ['W1', 'W2', 'W3', 'W4', 'W5']
 
   const totalPct = weekKeys.reduce((sum, key) => sum + (Number(form[key]) || 0), 0)
 
@@ -85,6 +90,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
       week2Target: Number(form.week2Target) || 0,
       week3Target: Number(form.week3Target) || 0,
       week4Target: Number(form.week4Target) || 0,
+      week5Target: Number(form.week5Target) || 0,
     })
   }
 
@@ -178,7 +184,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
             <span className="text-[10px] text-muted-foreground ml-auto">Distribusi target per minggu</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
             {weekKeys.map((key, i) => {
               const isCurrentWeek = i + 1 === currentWeek
               const val = Number(form[key]) || 0
@@ -207,7 +213,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
                     <span className={`text-[10px] font-bold ${weekIcons[i]}`}>{weekLabels[i]}</span>
                   </div>
                   <p className="text-[9px] text-muted-foreground mb-1.5">
-                    {(i * 7 + 1)}–{Math.min((i + 1) * 7, 31)}
+                    {i < 4 ? `${(i * 7 + 1)}–${(i + 1) * 7}` : '29–31'}
                   </p>
                   <Input
                     type="number"
