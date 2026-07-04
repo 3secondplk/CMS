@@ -1,6 +1,7 @@
-// ─── PRODUCTION SCHEMA (PostgreSQL / Neon) ───
-// Copy this file to schema.prisma when deploying to Vercel with Neon DB
-// Then run: npx prisma generate && npx prisma db push
+// ─────────────────────────────────────────────────────────
+// CMS Crew Management System — Prisma Schema (SQLite)
+// Developer: Ahtjong Labs
+// ─────────────────────────────────────────────────────────
 
 generator client {
   provider = "prisma-client-js"
@@ -29,7 +30,6 @@ model Group {
   week2Target    Float   @default(0)
   week3Target    Float   @default(0)
   week4Target    Float   @default(0)
-  week5Target    Float   @default(0)
   crews          Crew[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -44,7 +44,7 @@ model Crew {
   group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sales      Sale[]
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 model Sale {
@@ -73,11 +73,14 @@ model Sale {
   channelStock     String?
   claimedAt        DateTime?
   createdAt        DateTime @default(now())
+}
 
-  @@index([tanggal])
-  @@index([kodeExtend])
-  @@index([crewId])
-  @@index([program])
-  @@index([tanggal, kodeExtend])
-  @@index([idPenjualan])
+model ActivityLog {
+  id          String   @id @default(cuid())
+  action      String
+  description String
+  crewName    String?
+  saleId      String?
+  metadata    String?
+  createdAt   DateTime @default(now())
 }

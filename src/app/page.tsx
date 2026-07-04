@@ -831,7 +831,7 @@ export default function Home() {
     } catch { toast.error('Gagal menghapus crew') }
   }
 
-  const handleSaveGroup = async (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number; week5Target: number }) => {
+  const handleSaveGroup = async (data: { name: string; logo: string; monthlyTarget: number; week1Target: number; week2Target: number; week3Target: number; week4Target: number }) => {
     try {
       const method = editGroup ? 'PUT' : 'POST'
       const body = editGroup ? { id: editGroup.id, ...data } : data

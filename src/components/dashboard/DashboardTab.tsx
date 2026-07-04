@@ -1029,8 +1029,8 @@ const DashboardTab = React.memo(function DashboardTab({
                                   <span><Users className="w-2.5 h-2.5 inline mr-0.5" />{g.crewCount}</span>
                                   <span className="truncate font-semibold text-foreground">{fmtRp(g.monthlyTotal)}</span>
                                 </div>
-                                {/* All 5 weekly progress bars (W5 = days 29-end) */}
-                                <div className="grid grid-cols-5 gap-1">
+                                {/* All 4 weekly progress bars */}
+                                <div className="grid grid-cols-4 gap-1">
                                   {g.weeklyDetails?.map((wd) => (
                                     <div key={wd.week} className="text-center">
                                       <div className="h-1 bg-muted/80 rounded-full overflow-hidden mb-0.5">
@@ -1149,7 +1149,7 @@ const DashboardTab = React.memo(function DashboardTab({
                                   </div>
                                 </div>
                               </div>
-                              {/* All 5 Weekly Achievements (W5 = days 29-end) */}
+                              {/* All 4 Weekly Achievements */}
                               <div className="space-y-2">
                                 <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Achievement per Minggu</p>
                                 {g.weeklyDetails?.map((wd) => (

@@ -126,7 +126,6 @@ export async function POST(request: NextRequest) {
           week2Target: 0,
           week3Target: 0,
           week4Target: 0,
-          week5Target: 0,
         },
       })
       defaultGroupId = defaultGroup.id
