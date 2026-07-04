@@ -20,7 +20,8 @@ export async function GET() {
     if (dayOfMonth <= 7) currentWeek = 1
     else if (dayOfMonth <= 14) currentWeek = 2
     else if (dayOfMonth <= 21) currentWeek = 3
-    else currentWeek = 4
+    else if (dayOfMonth <= 28) currentWeek = 4
+    else currentWeek = 5
 
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
@@ -52,9 +53,16 @@ export async function GET() {
       salesByCrew.get(s.crewId!)!.push({ tanggal: s.tanggal, settle: s.settle })
     }
 
-    // Week range (CORR-02: days 29-31 now included in week 4)
-    const weekStart = (currentWeek - 1) * 7 + 1
-    const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
+    // Week range (W5 = days 29-end, separated from W4 so W4 target stays at 22-28)
+    let weekStart: number, weekEnd: number
+    if (currentWeek <= 4) {
+      weekStart = (currentWeek - 1) * 7 + 1
+      weekEnd = Math.min(currentWeek * 7, 28)
+    } else {
+      // Week 5: days 29 to end of month
+      weekStart = 29
+      weekEnd = daysInMonth
+    }
 
     // ── Calculate achievements per group ──
     const groupsWithStats = groupsRaw.map(group => {
@@ -77,6 +85,7 @@ export async function GET() {
         case 2: weekTarget = group.week2Target; break
         case 3: weekTarget = group.week3Target; break
         case 4: weekTarget = group.week4Target; break
+        case 5: weekTarget = group.week5Target; break
         default: weekTarget = 0
       }
       const weeklyAchievement = weekTarget > 0 ? (weeklyTotal / (monthlyTarget * weekTarget / 100)) * 100 : 0
@@ -106,7 +115,7 @@ export async function POST(request: NextRequest) {
     if (!auth) return auth as NextResponse
 
     const body = await request.json()
-    const { name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target } = body
+    const { name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target } = body
 
     if (!name) {
       return NextResponse.json({ error: 'Nama group harus diisi' }, { status: 400 })
@@ -137,6 +146,8 @@ export async function POST(request: NextRequest) {
     if (w3 instanceof NextResponse) return w3
     const w4 = validateTarget(week4Target, 'week4Target')
     if (w4 instanceof NextResponse) return w4
+    const w5 = validateTarget(week5Target, 'week5Target')
+    if (w5 instanceof NextResponse) return w5
 
     const group = await db.group.create({
       data: {
@@ -147,6 +158,7 @@ export async function POST(request: NextRequest) {
         week2Target: w2,
         week3Target: w3,
         week4Target: w4,
+        week5Target: w5,
       },
     })
 
@@ -172,7 +184,7 @@ export async function PUT(request: NextRequest) {
     if (!auth) return auth as NextResponse
 
     const body = await request.json()
-    const { id, name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target } = body
+    const { id, name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target } = body
 
     if (!id) {
       return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
@@ -193,6 +205,7 @@ export async function PUT(request: NextRequest) {
         ...(week2Target !== undefined && { week2Target }),
         ...(week3Target !== undefined && { week3Target }),
         ...(week4Target !== undefined && { week4Target }),
+        ...(week5Target !== undefined && { week5Target }),
       },
     })
 

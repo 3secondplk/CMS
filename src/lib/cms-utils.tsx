@@ -63,15 +63,24 @@ export function getWeekRange(): { from: string; to: string } {
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth()
 
+  // W1: 1-7, W2: 8-14, W3: 15-21, W4: 22-28, W5: 29-end (days 29-31 separated from W4)
   let currentWeek = 1
   if (dayOfMonth <= 7) currentWeek = 1
   else if (dayOfMonth <= 14) currentWeek = 2
   else if (dayOfMonth <= 21) currentWeek = 3
-  else currentWeek = 4
+  else if (dayOfMonth <= 28) currentWeek = 4
+  else currentWeek = 5
 
-  const weekStart = (currentWeek - 1) * 7 + 1
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
-  const weekEnd = currentWeek === 4 ? daysInMonth : Math.min(currentWeek * 7, daysInMonth)
+  let weekStart: number, weekEnd: number
+  if (currentWeek <= 4) {
+    weekStart = (currentWeek - 1) * 7 + 1
+    weekEnd = Math.min(currentWeek * 7, 28)
+  } else {
+    // Week 5: days 29 to end of month (only exists when month has 29+ days)
+    weekStart = 29
+    weekEnd = daysInMonth
+  }
 
   const fmt = (d: number) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
   return { from: fmt(weekStart), to: fmt(weekEnd) }
@@ -82,6 +91,38 @@ export function getMonthRange(): { from: string; to: string } {
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
   const fmt = (d: number) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
   return { from: fmt(1), to: fmt(lastDay) }
+}
+
+// ─── Current Week Helper (W1–W5) ─────────────────────
+// W1: 1-7, W2: 8-14, W3: 15-21, W4: 22-28, W5: 29-end (days 29-31 separated from W4)
+export function getCurrentWeek(): number {
+  const day = getWIBDate().getDate()
+  if (day <= 7) return 1
+  if (day <= 14) return 2
+  if (day <= 21) return 3
+  if (day <= 28) return 4
+  return 5
+}
+
+// ─── Week Date Ranges (5 weeks) ──────────────────────
+// Returns array of { week, start, end } for all weeks that exist in the current month.
+// Week 5 only included when month has 29+ days.
+export function getWeekRanges(): Array<{ week: number; start: number; end: number }> {
+  const now = getWIBDate()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth()
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+
+  const ranges = [
+    { week: 1, start: 1, end: 7 },
+    { week: 2, start: 8, end: 14 },
+    { week: 3, start: 15, end: 21 },
+    { week: 4, start: 22, end: 28 },
+  ]
+  if (daysInMonth >= 29) {
+    ranges.push({ week: 5, start: 29, end: daysInMonth })
+  }
+  return ranges
 }
 
 // ─── Safe Fetch with Timeout (8s) ────────────────────

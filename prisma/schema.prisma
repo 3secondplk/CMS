@@ -1,7 +1,6 @@
-// ─────────────────────────────────────────────────────────
-// CMS Crew Management System — Prisma Schema (PostgreSQL / Neon)
-// Developer: Ahtjong Labs
-// ─────────────────────────────────────────────────────────
+// ─── PRODUCTION SCHEMA (PostgreSQL / Neon) ───
+// Copy this file to schema.prisma when deploying to Vercel with Neon DB
+// Then run: npx prisma generate && npx prisma db push
 
 generator client {
   provider = "prisma-client-js"
@@ -30,8 +29,8 @@ model Group {
   week2Target    Float   @default(0)
   week3Target    Float   @default(0)
   week4Target    Float   @default(0)
+  week5Target    Float   @default(0)
   crews          Crew[]
-  jobdesks        Jobdesk[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
@@ -44,20 +43,19 @@ model Crew {
   groupId    String
   group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sales      Sale[]
-  jobdesks    Jobdesk[] @relation("CrewJobdesks")
   createdAt  DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt  DateTime @updatedAt
 }
 
 model Sale {
   id               String   @id @default(cuid())
   crewId           String?
   crew             Crew?    @relation(fields: [crewId], references: [id], onDelete: SetNull)
-  tanggal          String   @default("1970-01-01")
+  tanggal          String
   idPenjualan      String?
   statusRetention  String?
   retentionCode    String?
-  kodeExtend       String   @default("")
+  kodeExtend       String
   brand            String?
   dept             String?
   modul            String?
@@ -75,34 +73,11 @@ model Sale {
   channelStock     String?
   claimedAt        DateTime?
   createdAt        DateTime @default(now())
-}
 
-model ActivityLog {
-  id          String   @id @default(cuid())
-  action      String
-  description String
-  crewName    String?
-  saleId      String?
-  metadata    String?
-  createdAt   DateTime @default(now())
-}
-
-// ─── Jobdesk / Daily Task Management ──────────────────
-model Jobdesk {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  date        String   @default("1970-01-01") // YYYY-MM-DD format
-  priority    String   @default("regular") // "regular" or "urgent"
-  status      String   @default("pending") // "pending", "in_progress", "completed"
-  order       Int      @default(0)         // for drag-and-drop ordering within a date
-  groupId     String?                   // assigned Group/Zoning
-  group       Group?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  crewId      String?                   // assigned Crew
-  crew        Crew?    @relation("CrewJobdesks", fields: [crewId], references: [id], onDelete: SetNull)
-  validatedByAdmin Boolean @default(false) // admin validation checkbox
-  validatedBy  String?                   // admin who validated
-  validatedAt  DateTime?                 // when admin validated
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@index([tanggal])
+  @@index([kodeExtend])
+  @@index([crewId])
+  @@index([program])
+  @@index([tanggal, kodeExtend])
+  @@index([idPenjualan])
 }

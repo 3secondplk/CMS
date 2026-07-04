@@ -14,12 +14,10 @@ import {
   Trophy, Medal, Target, TrendingUp, Users, Star, Zap, ArrowUpRight, ArrowDownRight,
   BarChart3, Calendar, Flame, Clock, Eye, RefreshCw, Upload, ShoppingCart, Package, X,
   Sun, CloudSun, CloudMoon, Moon, Sparkles, Receipt,
-  ArrowLeftRight, TrendingDown, Minus, CircleDollarSign, CalendarDays, Filter, ChevronDown,
+  ArrowLeftRight, TrendingDown, Minus, CircleDollarSign, CalendarDays,
 } from 'lucide-react'
 import { fmtRp, fmtNum, fadeIn, stagger, AnimatedCounter, SkeletonRow, AchievementBadge, CircularProgress, monthNames, getWIBDate, timeAgo } from '@/lib/cms-utils'
 import type { DashboardData, CrewStat, GroupAchievement, GroupDetailData } from '@/lib/cms-types'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import LoadingOverlay from '@/components/ui/LoadingOverlay'
 import DashboardExport from '@/components/dashboard/DashboardExport'
 
@@ -28,10 +26,6 @@ interface DashboardTabProps {
   dashPeriod: 'today' | 'week' | 'month'
   setDashPeriod: (p: 'today' | 'week' | 'month') => void
   dashLoading: boolean
-  dashFilterMonth: number | null
-  setDashFilterMonth: (v: number | null) => void
-  dashFilterYear: number | null
-  setDashFilterYear: (v: number | null) => void
   isAdmin: boolean
   selectedCrewDetail: CrewStat | null
   setSelectedCrewDetail: (c: CrewStat | null) => void
@@ -146,9 +140,7 @@ function WelcomeCard({ dashboard }: { dashboard: DashboardData }) {
 }
 
 const DashboardTab = React.memo(function DashboardTab({
-  dashboard, dashPeriod, setDashPeriod, dashLoading,
-  dashFilterMonth, setDashFilterMonth, dashFilterYear, setDashFilterYear,
-  isAdmin,
+  dashboard, dashPeriod, setDashPeriod, dashLoading, isAdmin,
   selectedCrewDetail, setSelectedCrewDetail,
   selectedGroupDetail, setSelectedGroupDetail,
   groupDetailData, groupDetailPeriod, setGroupDetailPeriod, groupDetailLoading,
@@ -264,90 +256,6 @@ const DashboardTab = React.memo(function DashboardTab({
           {/* ─── Selamat Datang Welcome Card ─── */}
           <motion.div initial={{ opacity: 0, y: -30, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}>
             <WelcomeCard dashboard={dashboard} />
-          </motion.div>
-
-          {/* ─── Month/Year Floating Filter Button ─── */}
-          <motion.div {...fadeIn} transition={{ delay: 0.02 }} className="fixed bottom-20 md:bottom-8 right-4 sm:right-8 z-40">
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="relative group flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-[#E14227] hover:bg-[#B8321E] text-white shadow-lg shadow-[#E14227]/30 hover:shadow-xl hover:shadow-[#E14227]/40 transition-all active:scale-95">
-                  <Filter className="w-4 h-4" />
-                  <span className="text-xs font-semibold hidden sm:inline">
-                    {dashboard?.dateInfo?.isCustomMonth
-                      ? `${monthNames[dashboard.dateInfo.currentMonth]} ${dashboard.dateInfo.currentYear}`
-                      : 'Filter'}
-                  </span>
-                  {(dashFilterMonth || dashFilterYear) && (
-                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-white dark:border-[#1A1A1B] animate-pulse" />
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-56 p-3 space-y-3" align="end" sideOffset={8}>
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-foreground">Filter Periode</h4>
-                  {(dashFilterMonth || dashFilterYear) && (
-                    <button
-                      onClick={() => { setDashFilterMonth(null); setDashFilterYear(null) }}
-                      className="text-[10px] text-[#E14227] hover:underline font-medium"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground mb-1 block">Tahun</label>
-                    <Select
-                      value={dashFilterYear?.toString() || '__current__'}
-                      onValueChange={v => {
-                        const yr = v === '__current__' ? null : parseInt(v)
-                        setDashFilterYear(yr)
-                        if (yr === null) setDashFilterMonth(null)
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Tahun" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__current__">Tahun ini</SelectItem>
-                        {Array.from({ length: 5 }, (_, i) => {
-                          const yr = getWIBDate().getFullYear() - 1 - i
-                          return <SelectItem key={yr} value={yr.toString()}>{yr}</SelectItem>
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground mb-1 block">Bulan</label>
-                    <Select
-                      value={dashFilterMonth?.toString() || '__current__'}
-                      onValueChange={v => {
-                        const mo = v === '__current__' ? null : parseInt(v)
-                        setDashFilterMonth(mo)
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Bulan" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__current__">Bulan ini</SelectItem>
-                        {monthNames.map((name, i) => (
-                          <SelectItem key={i} value={String(i + 1)}>{name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                {dashboard?.dateInfo?.isCustomMonth && (
-                  <div className="pt-2 border-t border-border/50">
-                    <Badge variant="outline" className="text-[10px] border-[#E14227]/30 text-[#E14227]">
-                      <CalendarDays className="w-3 h-3 mr-1" />
-                      {monthNames[dashboard.dateInfo.currentMonth]} {dashboard.dateInfo.currentYear}
-                    </Badge>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
           </motion.div>
 
           {/* Summary Cards — Total Import Summary (ALL imported data from Excel) */}
@@ -684,26 +592,26 @@ const DashboardTab = React.memo(function DashboardTab({
           <motion.div {...fadeIn} transition={{ delay: 0.3 }}>
             <Card className="border-0 shadow-lg overflow-hidden">
               <CardHeader className="pb-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shadow-amber-500/20">
-                      <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shadow-amber-500/20">
+                      <Trophy className="w-4 h-4 text-white" />
                     </div>
                     <div>
-                      <CardTitle className="text-sm sm:text-base leading-tight">Top Crew Leaderboard</CardTitle>
-                      <p className="text-[9px] sm:text-[10px] text-muted-foreground hidden sm:block">{isAchievement ? 'Peringkat berdasarkan pencapaian bulanan' : 'Peringkat kru berdasarkan total penjualan'}</p>
+                      <CardTitle className="text-base leading-tight">Top Crew Leaderboard</CardTitle>
+                      <p className="text-[10px] text-muted-foreground">{isAchievement ? 'Peringkat berdasarkan pencapaian bulanan' : 'Peringkat kru berdasarkan total penjualan'}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-6 w-6 sm:h-7 sm:w-7" onClick={() => fetchDashboard()} title="Refresh">
-                      <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  <div className="flex items-center gap-1.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fetchDashboard()} title="Refresh">
+                      <RefreshCw className="w-3.5 h-3.5" />
                     </Button>
                     <DashboardExport dashboard={dashboard} dashPeriod={dashPeriod} />
-                    <div className="flex gap-0.5 sm:gap-1 bg-muted rounded-md sm:rounded-lg p-0.5 sm:p-1 overflow-x-auto scrollbar-none">
+                    <div className="flex gap-1 bg-muted rounded-lg p-1">
                     {(['today', 'week', 'month', 'achievement'] as const).map(p => (
                       <button key={p} onClick={() => handleLeaderboardViewChange(p)}
-                        className={`px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${leaderboardView === p ? 'bg-white dark:bg-[#262627] shadow text-[#B8321E] dark:text-[#F07050]' : 'text-muted-foreground hover:text-foreground'}`}>
-                        {p === 'today' ? 'Hari' : p === 'week' ? 'Minggu' : p === 'month' ? 'Bulan' : 'Achv'}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${leaderboardView === p ? 'bg-white dark:bg-[#262627] shadow text-[#B8321E] dark:text-[#F07050]' : 'text-muted-foreground hover:text-foreground'}`}>
+                        {p === 'today' ? 'Hari Ini' : p === 'week' ? 'Minggu' : p === 'month' ? 'Bulan' : 'Achievement'}
                       </button>
                     ))}
                   </div>
@@ -980,10 +888,6 @@ const DashboardTab = React.memo(function DashboardTab({
                                 )}
                                 {isAchievement && (
                                   <div className="mt-0.5">
-                                    <div className="flex items-center justify-between mb-0.5">
-                                      <span className="text-[8px] text-muted-foreground">Target: {fmtRp(crew.crewMonthlyTarget)}</span>
-                                      <span className={`text-[9px] font-bold ${getTargetPctColor(targetPct)}`}>{targetPct}%</span>
-                                    </div>
                                     <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                                       <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(targetPct, 100)}%` }} transition={{ duration: 0.8, delay: idx * 0.03 }}
                                         className={`h-full rounded-full ${getTargetBarColor(targetPct)}`} />
@@ -992,8 +896,8 @@ const DashboardTab = React.memo(function DashboardTab({
                                 )}
                               </div>
                               <div className="text-right shrink-0 pl-2">
-                                <p className={`text-xs font-bold ${idx < 3 ? 'text-[#B8321E] dark:text-[#F07050]' : 'text-[#B2AC88] dark:text-[#B2AC88]'}`}>{isAchievement ? fmtRp(periodQty) : fmtRp(periodVal)}</p>
-                                <p className="text-[10px] text-muted-foreground">{isAchievement ? `${Math.round(periodVal)}% dari target` : `${fmtNum(periodQty)} qty`}</p>
+                                <p className={`text-xs font-bold ${idx < 3 ? 'text-[#B8321E] dark:text-[#F07050]' : 'text-[#B2AC88] dark:text-[#B2AC88]'}`}>{isAchievement ? `${Math.round(periodVal)}%` : fmtRp(periodVal)}</p>
+                                <p className="text-[10px] text-muted-foreground">{isAchievement ? fmtRp(periodQty) : `${fmtNum(periodQty)} qty`}</p>
                               </div>
                             </div>
                           </motion.div>
@@ -1008,9 +912,9 @@ const DashboardTab = React.memo(function DashboardTab({
                             <TableHead className="w-12 text-center">#</TableHead>
                             <TableHead>Crew</TableHead>
                             <TableHead>Group</TableHead>
-                            <TableHead className="text-center">{isAchievement ? 'Nominal' : 'Qty'}</TableHead>
+                            <TableHead className="text-center">{isAchievement ? 'Achievement' : 'Qty'}</TableHead>
                             <TableHead className="w-[220px]">{isAchievement ? 'Achievement' : 'Progress Target'}</TableHead>
-                            <TableHead className="text-right">{isAchievement ? 'Penjualan' : 'Penjualan'}</TableHead>
+                            <TableHead className="text-right">{isAchievement ? 'Pencapaian' : 'Penjualan'}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1046,7 +950,7 @@ const DashboardTab = React.memo(function DashboardTab({
                                 <TableCell>
                                   <Badge variant="outline" className="text-[10px] font-normal">{crew.groupName}</Badge>
                                 </TableCell>
-                                <TableCell className="text-center text-sm tabular-nums">{isAchievement ? fmtRp(periodQty) : fmtNum(periodQty)}</TableCell>
+                                <TableCell className="text-center text-sm tabular-nums">{isAchievement ? `${Math.round(periodQty)}%` : fmtNum(periodQty)}</TableCell>
                                 <TableCell>
                                   <div className="flex flex-col gap-0.5">
                                     <div className="flex items-center gap-2">
@@ -1062,7 +966,7 @@ const DashboardTab = React.memo(function DashboardTab({
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <span className={`font-semibold tabular-nums ${idx < 3 ? 'text-[#B8321E] dark:text-[#F07050]' : ''}`}>{isAchievement ? fmtRp(periodQty) : fmtRp(periodVal)}</span>
+                                  <span className={`font-semibold tabular-nums ${idx < 3 ? 'text-[#B8321E] dark:text-[#F07050]' : ''}`}>{isAchievement ? `${Math.round(periodVal)}%` : fmtRp(periodVal)}</span>
                                 </TableCell>
                               </TableRow>
                             )
@@ -1125,8 +1029,8 @@ const DashboardTab = React.memo(function DashboardTab({
                                   <span><Users className="w-2.5 h-2.5 inline mr-0.5" />{g.crewCount}</span>
                                   <span className="truncate font-semibold text-foreground">{fmtRp(g.monthlyTotal)}</span>
                                 </div>
-                                {/* All 4 weekly progress bars */}
-                                <div className="grid grid-cols-4 gap-1">
+                                {/* All 5 weekly progress bars (W5 = days 29-end) */}
+                                <div className="grid grid-cols-5 gap-1">
                                   {g.weeklyDetails?.map((wd) => (
                                     <div key={wd.week} className="text-center">
                                       <div className="h-1 bg-muted/80 rounded-full overflow-hidden mb-0.5">
@@ -1245,7 +1149,7 @@ const DashboardTab = React.memo(function DashboardTab({
                                   </div>
                                 </div>
                               </div>
-                              {/* All 4 Weekly Achievements */}
+                              {/* All 5 Weekly Achievements (W5 = days 29-end) */}
                               <div className="space-y-2">
                                 <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Achievement per Minggu</p>
                                 {g.weeklyDetails?.map((wd) => (
