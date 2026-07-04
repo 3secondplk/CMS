@@ -103,9 +103,19 @@ export async function GET() {
     })
 
     return NextResponse.json(groupsWithStats)
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Get groups error:', error)
-    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+    // Return informative error for debugging (Prisma errors, schema issues, etc.)
+    const errMsg = error instanceof Error ? error.message : String(error)
+    const errCode = (error as { code?: string })?.code
+    return NextResponse.json({
+      error: 'Database error',
+      message: errMsg,
+      code: errCode,
+      hint: errCode === 'P2021' || errMsg?.includes('week5Target')
+        ? 'Kolom week5Target belum ada di database. Jalankan: prisma migrate deploy (atau SQL: ALTER TABLE "Group" ADD COLUMN IF NOT EXISTS "week5Target" FLOAT NOT NULL DEFAULT 0;)'
+        : undefined,
+    }, { status: 500 })
   }
 }
 
