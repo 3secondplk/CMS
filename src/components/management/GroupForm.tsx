@@ -194,7 +194,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
             <span className="text-[10px] text-muted-foreground ml-auto">W1–W4 = 7 hari, W5 = sisa hari</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
             {weekKeys.map((key, i) => {
               const isCurrentWeek = i + 1 === currentWeek
               const val = Number(form[key]) || 0
@@ -203,7 +203,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
               return (
                 <div
                   key={key}
-                  className={`relative rounded-xl border-2 p-3 text-center transition-all ${
+                  className={`relative rounded-xl border-2 p-2.5 text-center transition-all ${
                     weekBlockColors[i]
                   } ${
                     isCurrentWeek
@@ -211,18 +211,11 @@ export default function GroupForm({ group, onSave, onCancel }: {
                       : ''
                   }`}
                 >
-                  {isCurrentWeek && (
-                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-10">
-                      <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-[#E14227] text-white text-[9px] font-bold shadow-md">
-                        <CalendarDays className="w-2.5 h-2.5" />
-                        Sekarang
-                      </span>
-                    </div>
-                  )}
+
                   <div className="flex items-center justify-center gap-1 mb-1.5">
                     <span className={`text-[10px] font-bold ${weekIcons[i]}`}>{weekLabels[i]}</span>
                   </div>
-                  <p className="text-[9px] text-muted-foreground mb-1.5">
+                  <p className="text-[8px] text-muted-foreground mb-1.5">
                     {weekDateRanges[i]}
                   </p>
                   <Input
@@ -234,7 +227,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
                     }`}
                   />
                   {allocation > 0 && (
-                    <p className="text-[10px] text-muted-foreground mt-1.5 font-mono tabular-nums">
+                    <p className="text-[9px] text-muted-foreground mt-1.5 font-mono tabular-nums">
                       {fmtRp(allocation)}
                     </p>
                   )}
@@ -274,7 +267,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
               <Target className="w-3.5 h-3.5" />
               Ringkasan Target
             </p>
-            <div className="grid grid-cols-3 gap-2 text-[11px]">
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Group</span>
                 <span className="font-medium">{form.name}</span>

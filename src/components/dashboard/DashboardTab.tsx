@@ -1094,10 +1094,10 @@ const DashboardTab = React.memo(function DashboardTab({
                                   <span className="truncate font-semibold text-foreground">{fmtRp(g.monthlyTotal)}</span>
                                 </div>
                                 {/* All weekly progress bars (up to 5 weeks) */}
-                                <div className="grid grid-cols-5 gap-1">
+                                <div className="grid grid-cols-5 gap-1.5">
                                   {g.weeklyDetails?.map((wd) => (
                                     <div key={wd.week} className="text-center">
-                                      <div className="h-1 bg-muted/80 rounded-full overflow-hidden mb-0.5">
+                                      <div className="h-1.5 bg-muted/80 rounded-full overflow-hidden mb-0.5">
                                         <div
                                           className={`h-full rounded-full transition-all duration-700 ${wd.week === g.currentWeek ? 'bg-gradient-to-r from-[#E14227] to-[#D4956B]' : wd.achievement >= 100 ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`}
                                           style={{ width: `${Math.min(wd.achievement, 100)}%` }}
@@ -1179,7 +1179,7 @@ const DashboardTab = React.memo(function DashboardTab({
                       ))}
                     </div>
                     {/* Desktop: 3-col grid with full cards */}
-                    <div className="hidden lg:grid lg:grid-cols-3 gap-4">
+                    <div className="hidden lg:grid lg:grid-cols-2 gap-4">
                       {dashboard.groupAchievements.map((g) => (
                         <motion.div key={g.id} whileHover={{ y: -6, transition: { type: 'spring', stiffness: 300 } }} whileTap={{ scale: 0.98 }}>
                           <Card
