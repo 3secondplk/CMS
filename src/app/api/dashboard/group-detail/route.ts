@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, unauthorized } from '@/lib/auth'
 
 // Helper: get week number (1-5)
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -40,7 +40,7 @@ function getWeekRanges(year: number, month: number): Array<{ week: number; start
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return auth as NextResponse
+    if (!auth) return unauthorized()
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const period = searchParams.get('period') || 'daily'
@@ -226,8 +226,9 @@ export async function GET(request: NextRequest) {
       crewWeeklyTargets,
       currentWeek,
     })
-  } catch (error) {
-    console.error('Group detail error:', error)
-    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('Group detail error:', msg)
+    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
   }
 }

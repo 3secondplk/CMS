@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, unauthorized } from '@/lib/auth'
 
 // ─────────────────────────────────────────────
 // GET /api/claims/programs — List unique program values
@@ -8,7 +8,7 @@ import { requireAuth } from '@/lib/auth'
 export async function GET() {
   try {
     const auth = await requireAuth()
-    if (!auth) return auth as NextResponse
+    if (!auth) return unauthorized()
     const programs = await db.sale.findMany({
       where: {
         program: { not: null },

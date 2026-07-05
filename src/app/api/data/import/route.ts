@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, unauthorized } from '@/lib/auth'
 import { db } from '@/lib/db'
 
 export const runtime = 'nodejs'
@@ -66,7 +66,7 @@ interface ExportData {
 
 export async function POST(request: NextRequest) {
   const user = await requireAuth()
-  if (!user) return // NextResponse already sent by requireAuth
+  if (!user) return unauthorized()
 
   const { searchParams } = request.nextUrl
   const clearExisting = searchParams.get('clearExisting') === 'true'

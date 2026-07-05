@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, unauthorized } from '@/lib/auth'
 import { logActivity } from '@/lib/activity-logger'
 
 // Helper: get week number (1-5)
@@ -15,7 +15,7 @@ function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
 export async function GET() {
   try {
     const auth = await requireAuth()
-    if (!auth) return auth as NextResponse
+    if (!auth) return unauthorized()
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
@@ -98,7 +98,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return auth as NextResponse
+    if (!auth) return unauthorized()
 
     const body = await request.json()
     const { name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target } = body
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return auth as NextResponse
+    if (!auth) return unauthorized()
 
     const body = await request.json()
     const { id, name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target } = body
@@ -207,7 +207,7 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return auth as NextResponse
+    if (!auth) return unauthorized()
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
