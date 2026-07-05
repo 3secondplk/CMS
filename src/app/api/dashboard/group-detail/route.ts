@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { requireAuth, unauthorized } from '@/lib/auth'
 
 // Helper: get week number (1-5)
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -39,8 +38,6 @@ function getWeekRanges(year: number, month: number): Array<{ week: number; start
 // GET /api/dashboard/group-detail?groupId=xxx&period=daily
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireAuth()
-    if (!auth) return unauthorized()
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const period = searchParams.get('period') || 'daily'
