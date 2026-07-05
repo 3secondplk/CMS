@@ -3,11 +3,19 @@ import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
 import { logActivity } from '@/lib/activity-logger'
 
+// Helper: get week number (1-5)
+function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
+  if (dayOfMonth <= 7) return 1
+  if (dayOfMonth <= 14) return 2
+  if (dayOfMonth <= 21) return 3
+  if (dayOfMonth <= 28) return 4
+  return 5
+}
+
 export async function GET() {
   try {
     const auth = await requireAuth()
     if (!auth) return auth as NextResponse
-    // ── WIB date calculation (before any queries) ──
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
@@ -15,56 +23,40 @@ export async function GET() {
     const currentMonth = wibNow.getMonth()
     const currentYear = wibNow.getFullYear()
     const dayOfMonth = wibNow.getDate()
-
-    let currentWeek = 1
-    if (dayOfMonth <= 7) currentWeek = 1
-    else if (dayOfMonth <= 14) currentWeek = 2
-    else if (dayOfMonth <= 21) currentWeek = 3
-    else if (dayOfMonth <= 28) currentWeek = 4
-    else currentWeek = 5
-
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+
+    const currentWeek = getWeekNumber(dayOfMonth, daysInMonth)
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
-    // ── Fetch groups with crew IDs only (PERF-03: don't load all sales) ──
     const groupsRaw = await db.group.findMany({
-      include: {
-        crews: { select: { id: true } },
-      },
+      include: { crews: { select: { id: true } } },
       orderBy: { createdAt: 'asc' },
     })
 
-    // ── Fetch monthly sales for all crews in a single query ──
     const allCrewIds = groupsRaw.flatMap(g => g.crews.map(c => c.id))
     const monthSalesData = allCrewIds.length > 0
       ? await db.sale.findMany({
-          where: {
-            crewId: { in: allCrewIds },
-            tanggal: { startsWith: monthPrefix },
-          },
+          where: { crewId: { in: allCrewIds }, tanggal: { startsWith: monthPrefix } },
           select: { crewId: true, tanggal: true, settle: true },
         })
       : []
 
-    // Map crewId → sales for O(1) lookup
     const salesByCrew = new Map<string, { tanggal: string; settle: number }[]>()
     for (const s of monthSalesData) {
       if (!salesByCrew.has(s.crewId!)) salesByCrew.set(s.crewId!, [])
       salesByCrew.get(s.crewId!)!.push({ tanggal: s.tanggal, settle: s.settle })
     }
 
-    // Week range (W5 = days 29-end, separated from W4 so W4 target stays at 22-28)
+    // Week range based on current week (W4=22-28, W5=29+)
     let weekStart: number, weekEnd: number
     if (currentWeek <= 4) {
       weekStart = (currentWeek - 1) * 7 + 1
-      weekEnd = Math.min(currentWeek * 7, 28)
+      weekEnd = currentWeek * 7
     } else {
-      // Week 5: days 29 to end of month
       weekStart = 29
       weekEnd = daysInMonth
     }
 
-    // ── Calculate achievements per group ──
     const groupsWithStats = groupsRaw.map(group => {
       const crewMonthSales = group.crews.flatMap(c => salesByCrew.get(c.id) || [])
       const monthlyTotal = crewMonthSales.reduce((sum, s) => sum + s.settle, 0)
@@ -74,48 +66,32 @@ export async function GET() {
       const weekSales = crewMonthSales.filter(s => {
         const day = s.tanggal.startsWith(monthPrefix)
           ? parseInt(s.tanggal.split('-')[2])
-          : (() => { const p = new Date(s.tanggal); return isNaN(p.getTime()) ? 0 : p.getDate() })()
+          : 0
         return day >= weekStart && day <= weekEnd
       })
       const weeklyTotal = weekSales.reduce((sum, s) => sum + s.settle, 0)
 
-      let weekTarget: number
-      switch (currentWeek) {
-        case 1: weekTarget = group.week1Target; break
-        case 2: weekTarget = group.week2Target; break
-        case 3: weekTarget = group.week3Target; break
-        case 4: weekTarget = group.week4Target; break
-        case 5: weekTarget = group.week5Target; break
-        default: weekTarget = 0
-      }
-      const weeklyAchievement = weekTarget > 0 ? (weeklyTotal / (monthlyTarget * weekTarget / 100)) * 100 : 0
+      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0]
+      const weekTargetPct = weeklyTargetPcts[currentWeek - 1] ?? 0
+      const weeklyAchievement = weekTargetPct > 0 ? (weeklyTotal / (monthlyTarget * weekTargetPct / 100)) * 100 : 0
 
       return {
         ...group,
+        week5Target: group.week5Target ?? 0,
         crewCount: group.crews.length,
         monthlyTotal,
         monthlyAchievement,
         weeklyTotal,
         weeklyAchievement,
         currentWeek,
-        currentWeekTarget: weekTarget,
+        currentWeekTarget: weekTargetPct,
       }
     })
 
     return NextResponse.json(groupsWithStats)
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('Get groups error:', error)
-    // Return informative error for debugging (Prisma errors, schema issues, etc.)
-    const errMsg = error instanceof Error ? error.message : String(error)
-    const errCode = (error as { code?: string })?.code
-    return NextResponse.json({
-      error: 'Database error',
-      message: errMsg,
-      code: errCode,
-      hint: errCode === 'P2021' || errMsg?.includes('week5Target')
-        ? 'Kolom week5Target belum ada di database. Jalankan: prisma migrate deploy (atau SQL: ALTER TABLE "Group" ADD COLUMN IF NOT EXISTS "week5Target" FLOAT NOT NULL DEFAULT 0;)'
-        : undefined,
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
@@ -131,12 +107,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nama group harus diisi' }, { status: 400 })
     }
 
-    // SEC-06: Input length validation
     if (typeof name !== 'string' || name.length > 200) {
       return NextResponse.json({ error: 'Nama group maksimal 200 karakter' }, { status: 400 })
     }
 
-    // Validate numeric targets are finite and non-negative
     const validateTarget = (val: unknown, fieldName: string): number | NextResponse => {
       if (val === undefined || val === null || val === '') return 0
       const num = Number(val)
@@ -172,7 +146,6 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Log create group activity (fire-and-forget)
     logActivity('CREATE_GROUP', {
       description: `Tambah group: ${name}`,
       details: { name },
@@ -200,7 +173,6 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
     }
 
-    // SEC-06: Input length validation
     if (name !== undefined && (typeof name !== 'string' || name.length > 200)) {
       return NextResponse.json({ error: 'Nama group maksimal 200 karakter' }, { status: 400 })
     }
@@ -245,12 +217,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     const existing = await db.group.findUnique({ where: { id } })
-
     if (!existing) {
       return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
     }
 
-    // Log delete group activity (fire-and-forget)
     logActivity('DELETE_GROUP', {
       description: `Hapus group: ${existing.name}`,
       details: { name: existing.name },

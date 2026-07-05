@@ -69,18 +69,9 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json(crewsWithStats)
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('Get crews error:', error)
-    const errMsg = error instanceof Error ? error.message : String(error)
-    const errCode = (error as { code?: string })?.code
-    return NextResponse.json({
-      error: 'Database error',
-      message: errMsg,
-      code: errCode,
-      hint: errCode === 'P2021' || errMsg?.includes('week5Target')
-        ? 'Kolom week5Target belum ada di database. Jalankan: prisma migrate deploy (atau SQL: ALTER TABLE "Group" ADD COLUMN IF NOT EXISTS "week5Target" FLOAT NOT NULL DEFAULT 0;)'
-        : undefined,
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 

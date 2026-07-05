@@ -55,8 +55,7 @@ function getCurrentWeek(): number {
   if (day <= 7) return 1
   if (day <= 14) return 2
   if (day <= 21) return 3
-  if (day <= 28) return 4
-  return 5
+  return 4
 }
 
 // ─── Helper: Group color palette ─────────────────────────
@@ -714,7 +713,7 @@ const ManagementTab = React.memo(function ManagementTab({
                     <DialogTrigger asChild>
                       <Button size="sm" className="bg-[#E14227] hover:bg-[#B8321E] text-white shadow-md shadow-[#E14227]/20 transition-all"><Plus className="w-4 h-4 mr-1" />Tambah Group</Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-lg">
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                       <GroupForm onSave={handleSaveGroup} onCancel={() => setShowAddGroup(false)} />
                     </DialogContent>
                   </Dialog>
@@ -729,7 +728,7 @@ const ManagementTab = React.memo(function ManagementTab({
                         { w: 2, t: group.week2Target },
                         { w: 3, t: group.week3Target },
                         { w: 4, t: group.week4Target },
-                        { w: 5, t: group.week5Target },
+                        { w: 5, t: group.week5Target ?? 0 },
                       ]
                       const currentWeekTarget = weekTargets[currentWeek - 1]?.t || 0
 
@@ -777,7 +776,7 @@ const ManagementTab = React.memo(function ManagementTab({
                               </div>
 
                               {/* Week target cards with current week highlight */}
-                              <div className="grid grid-cols-5 gap-1.5">
+                              <div className="grid grid-cols-4 gap-1.5">
                                 {weekTargets.map(week => (
                                   <div
                                     key={week.w}
@@ -853,7 +852,7 @@ const ManagementTab = React.memo(function ManagementTab({
 
                 {/* Edit Group Dialog */}
                 <Dialog open={showAddGroup && !!editGroup} onOpenChange={open => { if (!open) { setEditGroup(null); setShowAddGroup(false) } }}>
-                  <DialogContent className="max-w-lg">
+                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     {editGroup && (
                       <GroupForm group={editGroup} onSave={handleSaveGroup} onCancel={() => { setEditGroup(null); setShowAddGroup(false) }} />
                     )}

@@ -14,6 +14,7 @@ import type { Group } from '@/lib/cms-types'
 // ─── Helper: Get current week of month ───────────────────
 function getCurrentWeek(): number {
   const day = getWIBDate().getDate()
+  const daysInMonth = new Date(getWIBDate().getFullYear(), getWIBDate().getMonth() + 1, 0).getDate()
   if (day <= 7) return 1
   if (day <= 14) return 2
   if (day <= 21) return 3
@@ -21,12 +22,21 @@ function getCurrentWeek(): number {
   return 5
 }
 
+// Week date ranges: W1=1-7, W2=8-14, W3=15-21, W4=22-28, W5=29-31
+const weekDateRanges = [
+  '1–7',
+  '8–14',
+  '15–21',
+  '22–28',
+  '29–31',
+]
+
 const weekBlockColors = [
   'border-[#E14227]/40 bg-[#F0D5C5]/80 dark:border-[#B8321E] dark:bg-[#1A1A1B]/30',
   'border-[#E6BAA3] bg-[#F0D5C5]/80 dark:border-[#E6BAA3] dark:bg-[#1A1A1B]/30',
   'border-[#9DB1CC] bg-[#B5C7DB]/80 dark:border-[#9DB1CC] dark:bg-[#1A1A1B]/30',
   'border-[#D4956B] bg-[#F0D5C5]/80 dark:border-[#D4956B] dark:bg-[#1A1A1B]/30',
-  'border-[#7E95B3] bg-[#B5C7DB]/80 dark:border-[#7E95B3] dark:bg-[#1A1A1B]/30',
+  'border-[#B87333] bg-[#D4956B]/80 dark:border-[#B87333] dark:bg-[#1A1A1B]/30',
 ]
 
 const weekActiveRingColors = [
@@ -34,7 +44,7 @@ const weekActiveRingColors = [
   'ring-[#E6BAA3] shadow-[#E6BAA3]/20 dark:ring-[#E6BAA3] dark:shadow-[#E6BAA3]/40',
   'ring-[#9DB1CC] shadow-[#9DB1CC]/20 dark:ring-[#9DB1CC] dark:shadow-[#9DB1CC]/40',
   'ring-[#D4956B] shadow-[#D4956B]/20 dark:ring-[#D4956B] dark:shadow-[#D4956B]/40',
-  'ring-[#7E95B3] shadow-[#7E95B3]/20 dark:ring-[#7E95B3] dark:shadow-[#7E95B3]/40',
+  'ring-[#B87333] shadow-[#B87333]/20 dark:ring-[#B87333] dark:shadow-[#B87333]/40',
 ]
 
 const weekIcons = [
@@ -42,7 +52,7 @@ const weekIcons = [
   'text-[#C49060]',
   'text-[#7E95B3]',
   'text-[#B87D4F]',
-  'text-[#5B7396]',
+  'text-[#B87333]',
 ]
 
 export default function GroupForm({ group, onSave, onCancel }: {
@@ -57,8 +67,8 @@ export default function GroupForm({ group, onSave, onCancel }: {
     week1Target: group?.week1Target?.toString() || '20',
     week2Target: group?.week2Target?.toString() || '25',
     week3Target: group?.week3Target?.toString() || '25',
-    week4Target: group?.week4Target?.toString() || '25',
-    week5Target: group?.week5Target?.toString() || '5',
+    week4Target: group?.week4Target?.toString() || '20',
+    week5Target: group?.week5Target?.toString() || '10',
   })
   const [touched, setTouched] = useState(false)
 
@@ -181,10 +191,10 @@ export default function GroupForm({ group, onSave, onCancel }: {
           <div className="flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-[#E14227]" />
             <p className="text-sm font-semibold">Target Mingguan (%)</p>
-            <span className="text-[10px] text-muted-foreground ml-auto">Distribusi target per minggu</span>
+            <span className="text-[10px] text-muted-foreground ml-auto">W1–W4 = 7 hari, W5 = sisa hari</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {weekKeys.map((key, i) => {
               const isCurrentWeek = i + 1 === currentWeek
               const val = Number(form[key]) || 0
@@ -213,7 +223,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
                     <span className={`text-[10px] font-bold ${weekIcons[i]}`}>{weekLabels[i]}</span>
                   </div>
                   <p className="text-[9px] text-muted-foreground mb-1.5">
-                    {i < 4 ? `${(i * 7 + 1)}–${(i + 1) * 7}` : '29–31'}
+                    {weekDateRanges[i]}
                   </p>
                   <Input
                     type="number"
@@ -264,7 +274,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
               <Target className="w-3.5 h-3.5" />
               Ringkasan Target
             </p>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Group</span>
                 <span className="font-medium">{form.name}</span>
@@ -275,7 +285,7 @@ export default function GroupForm({ group, onSave, onCancel }: {
               </div>
               {weekKeys.map((key, i) => (
                 <div key={key} className="flex justify-between">
-                  <span className="text-muted-foreground">{weekLabels[i]}</span>
+                  <span className="text-muted-foreground">{weekLabels[i]} <span className="text-[9px] opacity-60">({weekDateRanges[i]})</span></span>
                   <span className="font-medium tabular-nums">{fmtRp(weekAllocations[i])}</span>
                 </div>
               ))}

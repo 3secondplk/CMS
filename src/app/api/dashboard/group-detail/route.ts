@@ -3,16 +3,47 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { requireAuth } from '@/lib/auth'
 
+// Helper: get week number (1-5)
+function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
+  if (dayOfMonth <= 7) return 1
+  if (dayOfMonth <= 14) return 2
+  if (dayOfMonth <= 21) return 3
+  if (dayOfMonth <= 28) return 4
+  return 5
+}
+
+// Helper: get week ranges for a month
+function getWeekRanges(year: number, month: number): Array<{ week: number; start: number; end: number; startStr: string; endNextDayStr: string }> {
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const fmt = (d: number) => `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+
+  const ranges: Array<{ week: number; start: number; end: number; startStr: string; endNextDayStr: string }> = [
+    { week: 1, start: 1, end: 7, startStr: fmt(1), endNextDayStr: fmt(8) },
+    { week: 2, start: 8, end: 14, startStr: fmt(8), endNextDayStr: fmt(15) },
+    { week: 3, start: 15, end: 21, startStr: fmt(15), endNextDayStr: fmt(22) },
+    { week: 4, start: 22, end: 28, startStr: fmt(22), endNextDayStr: fmt(29) },
+  ]
+  if (daysInMonth > 28) {
+    const nextMonthFirst = new Date(year, month + 1, 1)
+    ranges.push({
+      week: 5,
+      start: 29,
+      end: daysInMonth,
+      startStr: fmt(29),
+      endNextDayStr: `${nextMonthFirst.getFullYear()}-${String(nextMonthFirst.getMonth() + 1).padStart(2, '0')}-${String(nextMonthFirst.getDate()).padStart(2, '0')}`,
+    })
+  }
+  return ranges
+}
+
 // GET /api/dashboard/group-detail?groupId=xxx&period=daily
-// Returns crew list within a group with total qty, penjualan, struk count, basket size, price point
-// period: daily (default), weekly, monthly
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth()
     if (!auth) return auth as NextResponse
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
-    const period = searchParams.get('period') || 'daily' // daily, weekly, monthly
+    const period = searchParams.get('period') || 'daily'
 
     if (!groupId) {
       return NextResponse.json({ error: 'groupId diperlukan' }, { status: 400 })
@@ -32,32 +63,15 @@ export async function GET(request: NextRequest) {
     const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
     const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
 
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+    const currentWeek = getWeekNumber(dayOfMonth, daysInMonth)
+    const weekRanges = getWeekRanges(currentYear, currentMonth)
+    const currentWeekRange = weekRanges.find(r => r.week === currentWeek)!
+
     // Determine date range based on period
     let prismaDateFilter: Record<string, unknown>
     let sqlDateCondition: Prisma.Sql
     let periodLabel: string
-
-    // Calculate week range for weekly period (W5 = days 29-end, separated from W4)
-    let currentWeek = 1
-    if (dayOfMonth <= 7) currentWeek = 1
-    else if (dayOfMonth <= 14) currentWeek = 2
-    else if (dayOfMonth <= 21) currentWeek = 3
-    else if (dayOfMonth <= 28) currentWeek = 4
-    else currentWeek = 5
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
-    let weekStart: number, weekEnd: number
-    if (currentWeek <= 4) {
-      weekStart = (currentWeek - 1) * 7 + 1
-      weekEnd = Math.min(currentWeek * 7, 28)
-    } else {
-      weekStart = 29
-      weekEnd = daysInMonth
-    }
-    const weekStartStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekStart).padStart(2, '0')}`
-    const weekEndStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(weekEnd).padStart(2, '0')}`
-    // BUGFIX: use next day after weekEnd for lt comparison
-    const weekEndNextDay = new Date(currentYear, currentMonth, weekEnd + 1)
-    const weekEndNextDayStr = `${weekEndNextDay.getFullYear()}-${String(weekEndNextDay.getMonth() + 1).padStart(2, '0')}-${String(weekEndNextDay.getDate()).padStart(2, '0')}`
 
     switch (period) {
       case 'daily':
@@ -66,9 +80,9 @@ export async function GET(request: NextRequest) {
         periodLabel = `${dayOfMonth} ${shortMonths[currentMonth]} ${currentYear}`
         break
       case 'weekly':
-        prismaDateFilter = { gte: weekStartStr, lt: weekEndNextDayStr }
-        sqlDateCondition = Prisma.sql`AND "tanggal" >= ${weekStartStr} AND "tanggal" < ${weekEndNextDayStr}`
-        periodLabel = `Minggu ${currentWeek} (${weekStart}–${weekEnd})`
+        prismaDateFilter = { gte: currentWeekRange.startStr, lt: currentWeekRange.endNextDayStr }
+        sqlDateCondition = Prisma.sql`AND "tanggal" >= ${currentWeekRange.startStr} AND "tanggal" < ${currentWeekRange.endNextDayStr}`
+        periodLabel = `Minggu ${currentWeek} (${currentWeekRange.start}–${currentWeekRange.end})`
         break
       case 'monthly':
         prismaDateFilter = { startsWith: monthPrefix }
@@ -94,24 +108,21 @@ export async function GET(request: NextRequest) {
     const crewIds = group.crews.map(c => c.id)
 
     if (crewIds.length === 0) {
-      const crewCount = 0
-      const crewMonthlyTarget = 0
-      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target]
-      const crewWeeklyTargets = [0, 0, 0, 0, 0]
+      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0]
       return NextResponse.json({
         group: { id: group.id, name: group.name, logo: group.logo, monthlyTarget: group.monthlyTarget },
         period: periodLabel,
         periodKey: period,
         crews: [],
         groupTotal: { qty: 0, settle: 0, struk: 0, basketSize: 0, pricePoint: 0 },
-        crewMonthlyTarget,
+        crewMonthlyTarget: 0,
         weeklyTargetPcts,
-        crewWeeklyTargets,
+        crewWeeklyTargets: [0, 0, 0, 0, 0],
         currentWeek,
       })
     }
 
-    // Parallel queries: settle/qty aggregation + struk count per crew
+    // Parallel queries
     const [aggResult, strukResult] = await Promise.all([
       db.sale.groupBy({
         by: ['crewId'],
@@ -119,8 +130,6 @@ export async function GET(request: NextRequest) {
         _sum: { settle: true, qty: true },
         _count: true,
       }),
-      // Count unique idPenjualan (transaction/receipt IDs) per crew
-      // Quoted identifiers for PostgreSQL compatibility
       db.$queryRaw<Array<{ crewId: string; count: number }>>`
         SELECT "crewId", COUNT(DISTINCT "idPenjualan") as count
         FROM "Sale"
@@ -132,41 +141,22 @@ export async function GET(request: NextRequest) {
     const aggMap = new Map(aggResult.map(a => [a.crewId, a]))
     const strukMap = new Map(strukResult.map(r => [r.crewId, Number(r.count)]))
 
-    // Build crew stats
-    // ── Per-crew target calculation ──
+    // Target calculation
     const crewCount = group.crews.length
     const crewMonthlyTarget = crewCount > 0 ? Math.round(group.monthlyTarget / crewCount) : 0
-    const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target]
+    const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0]
     const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
     const crewCurrentWeekTarget = crewWeeklyTargets[currentWeek - 1] ?? 0
 
-    // Calculate per-week date ranges for all weeks (W5 only when month has 29+ days)
-    const weekRanges = daysInMonth >= 29
-      ? [1, 2, 3, 4, 5].map(w => {
-          const start = w <= 4 ? (w - 1) * 7 + 1 : 29
-          const end = w <= 4 ? Math.min(w * 7, 28) : daysInMonth
-          const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
-          const endNextDay = new Date(currentYear, currentMonth, end + 1)
-          const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
-          return { week: w, start, end, startStr, endNextDayStr }
-        })
-      : [1, 2, 3, 4].map(w => {
-          const start = (w - 1) * 7 + 1
-          const end = Math.min(w * 7, daysInMonth)
-          const startStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(start).padStart(2, '0')}`
-          const endNextDay = new Date(currentYear, currentMonth, end + 1)
-          const endNextDayStr = `${endNextDay.getFullYear()}-${String(endNextDay.getMonth() + 1).padStart(2, '0')}-${String(endNextDay.getDate()).padStart(2, '0')}`
-          return { week: w, start, end, startStr, endNextDayStr }
-        })
-
-    // Query per-week aggregation for each crew in this group (parallel queries, dynamic count)
-    const weekAggResults = crewIds.length > 0
-      ? await Promise.all(weekRanges.map(wr => db.sale.groupBy({
-          by: ['crewId'],
-          where: { crewId: { in: crewIds }, tanggal: { gte: wr.startStr, lt: wr.endNextDayStr } },
-          _sum: { settle: true },
-        })))
-      : weekRanges.map(() => [])
+    // Query per-week aggregation
+    const weekAggPromises = weekRanges.map(wr =>
+      db.sale.groupBy({
+        by: ['crewId'],
+        where: { crewId: { in: crewIds }, tanggal: { gte: wr.startStr, lt: wr.endNextDayStr } },
+        _sum: { settle: true },
+      })
+    )
+    const weekAggResults = await Promise.all(weekAggPromises)
     const weekAggMaps = weekAggResults.map(agg => new Map(agg.map(a => [a.crewId, a._sum.settle ?? 0])))
 
     const crews = group.crews.map(crew => {
@@ -177,16 +167,12 @@ export async function GET(request: NextRequest) {
       const basketSize = struk > 0 ? qty / struk : 0
       const pricePoint = qty > 0 ? settle / qty : 0
 
-      // Calculate monthly total from week aggregations (always current month, regardless of selected period)
       const monthlySettle = weekAggMaps.reduce((sum, wMap) => sum + (wMap.get(crew.id) ?? 0), 0)
-      // Current week total (always from week aggregation, not period filter)
       const currentWeekSettle = weekAggMaps[currentWeek - 1]?.get(crew.id) ?? 0
 
-      // Achievement: ALWAYS compare against correct period totals (not affected by selected period filter)
       const monthAchievement = crewMonthlyTarget > 0 ? Math.min(Math.round((monthlySettle / crewMonthlyTarget) * 100), 999) : 0
       const weekAchievement = crewCurrentWeekTarget > 0 ? Math.min(Math.round((currentWeekSettle / crewCurrentWeekTarget) * 100), 999) : 0
 
-      // Per-week achievements for this crew (all 5 weeks; W5 only when month has 29+ days)
       const crewWeeklyDetails = weekRanges.map((wr, i) => {
         const weekTarget = crewWeeklyTargets[i]
         const weekTotalForCrew = weekAggMaps[i].get(crew.id) ?? 0
@@ -221,10 +207,8 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Sort by totalSettle descending
     crews.sort((a, b) => b.totalSettle - a.totalSettle)
 
-    // Group totals
     const groupTotalQty = crews.reduce((s, c) => s + c.totalQty, 0)
     const groupTotalSettle = crews.reduce((s, c) => s + c.totalSettle, 0)
     const groupTotalStruk = crews.reduce((s, c) => s + c.totalStruk, 0)
@@ -232,22 +216,11 @@ export async function GET(request: NextRequest) {
     const groupPricePoint = groupTotalQty > 0 ? Math.round(groupTotalSettle / groupTotalQty) : 0
 
     return NextResponse.json({
-      group: {
-        id: group.id,
-        name: group.name,
-        logo: group.logo,
-        monthlyTarget: group.monthlyTarget,
-      },
+      group: { id: group.id, name: group.name, logo: group.logo, monthlyTarget: group.monthlyTarget },
       period: periodLabel,
       periodKey: period,
       crews,
-      groupTotal: {
-        qty: groupTotalQty,
-        settle: groupTotalSettle,
-        struk: groupTotalStruk,
-        basketSize: groupBasketSize,
-        pricePoint: groupPricePoint,
-      },
+      groupTotal: { qty: groupTotalQty, settle: groupTotalSettle, struk: groupTotalStruk, basketSize: groupBasketSize, pricePoint: groupPricePoint },
       crewMonthlyTarget,
       weeklyTargetPcts,
       crewWeeklyTargets,
