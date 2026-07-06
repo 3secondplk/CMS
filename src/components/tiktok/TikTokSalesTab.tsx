@@ -1,22 +1,24 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import {
   Plus, Search, Edit2, Trash2, X, ChevronLeft, ChevronRight,
   Truck, CheckCircle2, RotateCcw, XCircle, ShoppingBag,
-  Package, DollarSign, Hash, Ruler, Users, CalendarDays,
-  ArrowUpDown, Filter, Download, Upload, FileSpreadsheet, Loader2, AlertTriangle,
+  Package, DollarSign, Hash,
+  ArrowUpDown, Filter, Download, Upload, Loader2,
 } from 'lucide-react'
-import { fmtRp, fmtNum, fadeIn, stagger, getWIBToday, getPageNumbers } from '@/lib/cms-utils'
+import { fmtRp, fmtNum, fadeIn, getWIBToday, getPageNumbers } from '@/lib/cms-utils'
 import type { Crew } from '@/lib/cms-types'
 import { toast } from 'sonner'
 
@@ -58,6 +60,13 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: React.Ele
   Batal: { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800', icon: XCircle, label: 'Batal' },
 }
 
+const STATUS_INLINE_STYLES: Record<string, string> = {
+  Pengiriman: 'border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50',
+  Selesai: 'border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50',
+  Retur: 'border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50',
+  Batal: 'border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50',
+}
+
 const EMPTY_FORM = {
   tanggal: '', idOrder: '', status: 'Pengiriman', artikel: '', size: '', qty: 1, revenue: 0, settle: 0, crewId: '',
 }
@@ -89,12 +98,15 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Form
-  const [showForm, setShowForm] = useState(false)
+  // Dialog form state (replaces old showForm AnimatePresence card)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  // Inline status saving
+  const [statusSavingId, setStatusSavingId] = useState<string | null>(null)
 
   // Crew search in form
   const [crewSearch, setCrewSearch] = useState('')
@@ -151,11 +163,34 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // ─── Inline status change ──────────────────────────
+  const handleInlineStatusChange = async (id: string, newStatus: string) => {
+    setStatusSavingId(id)
+    try {
+      const res = await fetch('/api/tiktok-sales', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Gagal mengubah status')
+      }
+      // Optimistic update
+      setItems(prev => prev.map(item => item.id === id ? { ...item, status: newStatus } : item))
+      toast.success('Status diperbarui')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Gagal mengubah status')
+    } finally {
+      setStatusSavingId(null)
+    }
+  }
+
   // ─── Form handlers ─────────────────────────────────
   const openAddForm = () => {
     setForm({ ...EMPTY_FORM, tanggal: getWIBToday() })
     setEditingId(null)
-    setShowForm(true)
+    setDialogOpen(true)
     setCrewSearch('')
   }
 
@@ -172,12 +207,12 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
       crewId: item.crewId || '',
     })
     setEditingId(item.id)
-    setShowForm(true)
+    setDialogOpen(true)
     setCrewSearch(item.crew?.name || '')
   }
 
   const cancelForm = () => {
-    setShowForm(false)
+    setDialogOpen(false)
     setEditingId(null)
     setForm({ ...EMPTY_FORM })
     setCrewSearch('')
@@ -190,7 +225,7 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
     }
     setSaving(true)
     try {
-      const url = editingId ? '/api/tiktok-sales' : '/api/tiktok-sales'
+      const url = '/api/tiktok-sales'
       const method = editingId ? 'PUT' : 'POST'
       const body = editingId ? { id: editingId, ...form } : form
 
@@ -409,132 +444,197 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
           </CardContent>
         </Card>
 
-        {/* Add/Edit Form */}
-        <AnimatePresence>
-          {showForm && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden"
-            >
-              <Card className="border-0 shadow-md bg-white dark:bg-[#1A1A1B] border-t-4 border-t-[#E14227]">
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold text-lg">{editingId ? 'Edit Penjualan TikTok' : 'Tambah Penjualan TikTok'}</h3>
-                    <Button variant="ghost" size="icon" onClick={cancelForm} className="h-8 w-8"><X className="w-4 h-4" /></Button>
+        {/* Add/Edit Dialog */}
+        <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) cancelForm() }}>
+          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-[#1A1A1B]">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-bold">
+                {editingId ? 'Edit Order' : 'Order Baru'}
+              </DialogTitle>
+              <DialogDescription>
+                {editingId ? 'Ubah detail penjualan TikTok' : 'Isi detail penjualan TikTok baru'}
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Section 1: Detail Order */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Detail Order</p>
+              <div className="grid grid-cols-2 gap-3">
+                {/* Tanggal */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-tanggal" className="text-xs text-muted-foreground">Tanggal *</Label>
+                  <Input
+                    id="form-tanggal"
+                    type="date"
+                    value={form.tanggal}
+                    onChange={e => setForm(f => ({ ...f, tanggal: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {/* ID Order */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-idOrder" className="text-xs text-muted-foreground">ID Order *</Label>
+                  <Input
+                    id="form-idOrder"
+                    placeholder="cth: TT240701001"
+                    value={form.idOrder}
+                    onChange={e => setForm(f => ({ ...f, idOrder: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {/* Status */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Status</Label>
+                  <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Artikel */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-artikel" className="text-xs text-muted-foreground">Artikel *</Label>
+                  <Input
+                    id="form-artikel"
+                    placeholder="Nama produk"
+                    value={form.artikel}
+                    onChange={e => setForm(f => ({ ...f, artikel: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Separator className="my-1" />
+
+            {/* Section 2: Finansial & Crew */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Finansial &amp; Crew</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {/* Size */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-size" className="text-xs text-muted-foreground">Size</Label>
+                  <Input
+                    id="form-size"
+                    placeholder="cth: 42, M, L"
+                    value={form.size}
+                    onChange={e => setForm(f => ({ ...f, size: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {/* Qty */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-qty" className="text-xs text-muted-foreground">Qty</Label>
+                  <Input
+                    id="form-qty"
+                    type="number"
+                    min="1"
+                    value={form.qty}
+                    onChange={e => setForm(f => ({ ...f, qty: parseInt(e.target.value) || 1 }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {/* Revenue */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-revenue" className="text-xs text-muted-foreground">Revenue</Label>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">Rp</span>
+                    <Input
+                      id="form-revenue"
+                      type="number"
+                      min="0"
+                      step="1000"
+                      value={form.revenue || ''}
+                      onChange={e => setForm(f => ({ ...f, revenue: parseFloat(e.target.value) || 0 }))}
+                      className="h-9 text-sm pl-9"
+                      placeholder="0"
+                    />
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    {/* Tanggal */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Tanggal *</label>
-                      <Input type="date" value={form.tanggal} onChange={e => setForm(f => ({ ...f, tanggal: e.target.value }))} className="h-9 text-sm" />
-                    </div>
-                    {/* ID Order */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">ID Order *</label>
-                      <Input placeholder="cth: TT240701001" value={form.idOrder} onChange={e => setForm(f => ({ ...f, idOrder: e.target.value }))} className="h-9 text-sm" />
-                    </div>
-                    {/* Status */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
-                      <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
-                        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {/* Artikel */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Artikel *</label>
-                      <Input placeholder="Nama produk" value={form.artikel} onChange={e => setForm(f => ({ ...f, artikel: e.target.value }))} className="h-9 text-sm" />
-                    </div>
-                    {/* Size */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Size</label>
-                      <Input placeholder="cth: 42, M, L" value={form.size} onChange={e => setForm(f => ({ ...f, size: e.target.value }))} className="h-9 text-sm" />
-                    </div>
-                    {/* Qty */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Qty</label>
-                      <Input type="number" min="1" value={form.qty} onChange={e => setForm(f => ({ ...f, qty: parseInt(e.target.value) || 1 }))} className="h-9 text-sm" />
-                    </div>
-                    {/* Revenue */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Revenue</label>
-                      <Input type="number" min="0" step="1000" value={form.revenue} onChange={e => setForm(f => ({ ...f, revenue: parseFloat(e.target.value) || 0 }))} className="h-9 text-sm" placeholder="0" />
-                    </div>
-                    {/* Settle */}
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Settle</label>
-                      <Input type="number" min="0" step="1000" value={form.settle} onChange={e => setForm(f => ({ ...f, settle: parseFloat(e.target.value) || 0 }))} className="h-9 text-sm" placeholder="0" />
-                    </div>
-                    {/* Crew */}
-                    <div className="col-span-2 relative" ref={crewDropdownRef}>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Crew</label>
-                      {selectedCrew ? (
-                        <div className="flex items-center gap-2 h-9 px-3 rounded-md border bg-muted/50 text-sm">
-                          <Avatar className="h-5 w-5">
-                            <AvatarImage src={selectedCrew.photo || undefined} />
-                            <AvatarFallback className="text-[9px]">{selectedCrew.name[0]}</AvatarFallback>
-                          </Avatar>
-                          <span className="flex-1 truncate">{selectedCrew.name}</span>
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setForm(f => ({ ...f, crewId: '' })); setCrewSearch('') }}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <Input
-                          placeholder="Cari crew..."
-                          value={crewSearch}
-                          onChange={e => { setCrewSearch(e.target.value); setShowCrewDropdown(true) }}
-                          onFocus={() => setShowCrewDropdown(true)}
-                          className="h-9 text-sm"
-                        />
-                      )}
-                      <AnimatePresence>
-                        {showCrewDropdown && !selectedCrew && (
-                          <motion.div
-                            initial={{ opacity: 0, y: -4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -4 }}
-                            className="absolute z-50 top-full mt-1 w-full max-h-48 overflow-y-auto rounded-lg border bg-popover shadow-lg"
+                </div>
+                {/* Settle */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-settle" className="text-xs text-muted-foreground">Settle</Label>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">Rp</span>
+                    <Input
+                      id="form-settle"
+                      type="number"
+                      min="0"
+                      step="1000"
+                      value={form.settle || ''}
+                      onChange={e => setForm(f => ({ ...f, settle: parseFloat(e.target.value) || 0 }))}
+                      className="h-9 text-sm pl-9"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+                {/* Crew */}
+                <div className="col-span-2 sm:col-span-2 space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Crew</Label>
+                  <div className="relative" ref={crewDropdownRef}>
+                    {selectedCrew ? (
+                      <div className="flex items-center gap-2 h-9 px-3 rounded-md border bg-muted/50 text-sm">
+                        <Avatar className="h-5 w-5">
+                          <AvatarImage src={selectedCrew.photo || undefined} />
+                          <AvatarFallback className="text-[9px]">{selectedCrew.name[0]}</AvatarFallback>
+                        </Avatar>
+                        <span className="flex-1 truncate">{selectedCrew.name}</span>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setForm(f => ({ ...f, crewId: '' })); setCrewSearch('') }}>
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Input
+                        placeholder="Cari crew..."
+                        value={crewSearch}
+                        onChange={e => { setCrewSearch(e.target.value); setShowCrewDropdown(true) }}
+                        onFocus={() => setShowCrewDropdown(true)}
+                        className="h-9 text-sm"
+                      />
+                    )}
+                    {showCrewDropdown && !selectedCrew && (
+                      <div className="absolute z-50 top-full mt-1 w-full max-h-48 overflow-y-auto rounded-lg border bg-popover shadow-lg">
+                        {filteredCrews.length === 0 ? (
+                          <div className="p-3 text-sm text-muted-foreground text-center">Crew tidak ditemukan</div>
+                        ) : filteredCrews.map(c => (
+                          <button
+                            key={c.id}
+                            className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted/80 transition-colors text-left"
+                            onClick={() => { setForm(f => ({ ...f, crewId: c.id })); setCrewSearch(c.name); setShowCrewDropdown(false) }}
                           >
-                            {filteredCrews.length === 0 ? (
-                              <div className="p-3 text-sm text-muted-foreground text-center">Crew tidak ditemukan</div>
-                            ) : filteredCrews.map(c => (
-                              <button
-                                key={c.id}
-                                className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted/80 transition-colors text-left"
-                                onClick={() => { setForm(f => ({ ...f, crewId: c.id })); setCrewSearch(c.name); setShowCrewDropdown(false) }}
-                              >
-                                <Avatar className="h-6 w-6">
-                                  <AvatarImage src={c.photo || undefined} />
-                                  <AvatarFallback className="text-[9px]">{c.name[0]}</AvatarFallback>
-                                </Avatar>
-                                <div>
-                                  <p className="font-medium">{c.name}</p>
-                                  <p className="text-[10px] text-muted-foreground">{c.employeeId} · {c.group?.name}</p>
-                                </div>
-                              </button>
-                            ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                            <Avatar className="h-6 w-6">
+                              <AvatarImage src={c.photo || undefined} />
+                              <AvatarFallback className="text-[9px]">{c.name[0]}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium">{c.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{c.employeeId} · {c.group?.name}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex justify-end gap-2 mt-4">
-                    <Button variant="outline" onClick={cancelForm} className="text-sm">Batal</Button>
-                    <Button onClick={handleSave} disabled={saving} className="bg-[#E14227] hover:bg-[#c7391f] text-white text-sm gap-2">
-                      {saving ? 'Menyimpan...' : editingId ? 'Update' : 'Simpan'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="mt-2">
+              <Button variant="outline" onClick={cancelForm} className="text-sm" disabled={saving}>
+                Batal
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="bg-[#E14227] hover:bg-[#c7391f] text-white text-sm gap-2"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? 'Menyimpan...' : editingId ? 'Update' : 'Simpan'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Table */}
         <Card className="border-0 shadow-sm bg-white/80 dark:bg-[#1A1A1B]/80 backdrop-blur overflow-hidden">
@@ -592,8 +692,6 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
                   </TableRow>
                 ) : (
                   items.map((item, i) => {
-                    const sc = STATUS_CONFIG[item.status] || STATUS_CONFIG.Pengiriman
-                    const StatusIcon = sc.icon
                     return (
                       <motion.tr
                         key={item.id}
@@ -605,11 +703,40 @@ const TikTokSalesTab: React.FC<TikTokSalesTabProps> = ({ crews, groups }) => {
                         <TableCell className="py-2.5 text-xs text-muted-foreground">{(page - 1) * 50 + i + 1}</TableCell>
                         <TableCell className="py-2.5 text-xs font-mono">{item.tanggal}</TableCell>
                         <TableCell className="py-2.5 text-xs font-mono font-medium">{item.idOrder}</TableCell>
+                        {/* Inline Status Dropdown */}
                         <TableCell className="py-2.5">
-                          <Badge variant="outline" className={`text-[10px] font-semibold px-2 py-0.5 border ${sc.bg} ${sc.color} gap-1`}>
-                            <StatusIcon className="w-3 h-3" />
-                            {sc.label}
-                          </Badge>
+                          <div className="relative inline-block">
+                            {statusSavingId === item.id ? (
+                              <div className="flex items-center gap-1 h-7 px-2 rounded-md border bg-muted/50 text-[11px] min-w-[90px]">
+                                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                              </div>
+                            ) : (
+                              <Select
+                                value={item.status}
+                                onValueChange={(v) => handleInlineStatusChange(item.id, v)}
+                              >
+                                <SelectTrigger
+                                  className={`h-7 text-[11px] font-semibold border rounded-md min-w-[90px] px-2 gap-1 [&>svg:last-child]:w-3 [&>svg:last-child]:h-3 ${STATUS_INLINE_STYLES[item.status] || STATUS_INLINE_STYLES.Pengiriman}`}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {STATUS_OPTIONS.map(s => {
+                                    const sc = STATUS_CONFIG[s]
+                                    const SIcon = sc.icon
+                                    return (
+                                      <SelectItem key={s} value={s} className="text-xs">
+                                        <span className="flex items-center gap-1.5">
+                                          <SIcon className={`w-3 h-3 ${sc.color}`} />
+                                          {s}
+                                        </span>
+                                      </SelectItem>
+                                    )
+                                  })}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="py-2.5 text-xs font-medium max-w-[160px] truncate" title={item.artikel}>{item.artikel}</TableCell>
                         <TableCell className="py-2.5 text-xs text-center">{item.size || '—'}</TableCell>

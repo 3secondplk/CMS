@@ -127,28 +127,28 @@ export async function GET(request: NextRequest) {
             _sum: { settle: true, qty: true },
             _count: true,
           }),
-          // TikTok aggregations (only status Selesai)
+          // TikTok aggregations (Pengiriman + Selesai = active sales)
           db.tikTokSale.groupBy({
             by: ['crewId'],
-            where: { crewId: { in: crewIds }, status: 'Selesai', tanggal: { startsWith: monthPrefix } },
+            where: { crewId: { in: crewIds }, status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { startsWith: monthPrefix } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
           db.tikTokSale.groupBy({
             by: ['crewId'],
-            where: { crewId: { in: crewIds }, status: 'Selesai', tanggal: { startsWith: todayStr } },
+            where: { crewId: { in: crewIds }, status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { startsWith: todayStr } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
           db.tikTokSale.groupBy({
             by: ['crewId'],
-            where: { crewId: { in: crewIds }, status: 'Selesai', tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } },
+            where: { crewId: { in: crewIds }, status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
           db.tikTokSale.groupBy({
             by: ['crewId'],
-            where: { crewId: { in: crewIds }, status: 'Selesai' },
+            where: { crewId: { in: crewIds }, status: { in: ['Pengiriman', 'Selesai'] } },
             _sum: { settle: true, qty: true },
             _count: true,
           }),
@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
         }),
         db.tikTokSale.groupBy({
           by: ['crewId'],
-          where: { crewId: { in: crewIds }, status: 'Selesai', tanggal: { gte: wr.startStr, lt: wr.endNextDayStr } },
+          where: { crewId: { in: crewIds }, status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { gte: wr.startStr, lt: wr.endNextDayStr } },
           _sum: { settle: true },
         }),
       ])
@@ -363,11 +363,11 @@ export async function GET(request: NextRequest) {
       db.sale.aggregate({ _sum: { settle: true, qty: true }, where: { tanggal: { startsWith: todayStr } } }),
       db.sale.aggregate({ _sum: { settle: true, qty: true }, where: { tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } } }),
       db.sale.aggregate({ _sum: { settle: true, qty: true }, where: { tanggal: { startsWith: monthPrefix } } }),
-      // TikTok totals (Selesai only)
-      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: 'Selesai', tanggal: { startsWith: todayStr } } }),
-      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: 'Selesai', tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } } }),
-      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: 'Selesai', tanggal: { startsWith: monthPrefix } } }),
-      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: 'Selesai' } }),
+      // TikTok totals (Pengiriman + Selesai)
+      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { startsWith: todayStr } } }),
+      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { gte: weekStartStr, lt: weekEndNextDayStr } } }),
+      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: { in: ['Pengiriman', 'Selesai'] }, tanggal: { startsWith: monthPrefix } } }),
+      db.tikTokSale.aggregate({ _sum: { settle: true, qty: true }, where: { status: { in: ['Pengiriman', 'Selesai'] } } }),
     ])
 
     // --- Trends (only for current month) ---
@@ -530,7 +530,7 @@ export async function GET(request: NextRequest) {
         importedWeekQty: importedWeekAgg._sum.qty ?? 0,
         importedMonth: importedMonthAgg._sum.settle ?? 0,
         importedMonthQty: importedMonthAgg._sum.qty ?? 0,
-        // TikTok totals (Selesai only)
+        // TikTok totals (Pengiriman + Selesai)
         tiktokToday: tkTodayAgg2._sum.settle ?? 0,
         tiktokTodayQty: tkTodayAgg2._sum.qty ?? 0,
         tiktokWeek: tkWeekAgg2._sum.settle ?? 0,
