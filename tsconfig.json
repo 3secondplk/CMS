@@ -40,6 +40,8 @@
     "node_modules",
     "examples",
     "skills",
-    "scripts"
+    "scripts",
+    "tests",
+    "vitest.config.ts"
   ]
 }
