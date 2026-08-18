@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
+import { dashboardQuerySchema } from '@/lib/validation'
 
 // Helper: get week number (1-5) based on day of month
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -48,9 +51,24 @@ function formatDateStr(d: Date): string {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`dashboard-get:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') || 'today' // today, week, month
     const groupId = searchParams.get('groupId')
+
+    // P0.7: Validate period against whitelist
+    const validPeriods = ['today', 'week', 'month']
+    if (!validPeriods.includes(period)) {
+      return NextResponse.json({ error: 'Invalid period' }, { status: 400 })
+    }
 
     // Month filter: allow viewing past months (default = current month)
     const filterMonth = searchParams.get('month')
@@ -590,8 +608,8 @@ export async function GET(request: NextRequest) {
       unclaimedCount: unclaimedAgg,
     })
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('Dashboard error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('Dashboard error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }

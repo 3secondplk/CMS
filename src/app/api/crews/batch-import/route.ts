@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, unauthorized } from '@/lib/auth'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
 import { db } from '@/lib/db'
 import * as XLSX from 'xlsx'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -32,10 +33,16 @@ function resolveColumn(headers: string[], aliases: string[]): string | null {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await requireAuth()
-  if (!user) return unauthorized()
-
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting — 3 imports per min
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`crews-batch-import:${clientId}`, RATE_LIMITS.IMPORT)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
@@ -226,6 +233,7 @@ export async function POST(request: NextRequest) {
       crews,
     })
   } catch (error: unknown) {
+    if (error instanceof AuthenticationError) return unauthorized()
     const message = error instanceof Error ? error.message : 'Import gagal'
     return NextResponse.json({ error: message }, { status: 500 })
   }

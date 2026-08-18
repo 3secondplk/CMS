@@ -1,22 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized } from '@/lib/auth'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
 import { logActivity } from '@/lib/activity-logger'
-import { Prisma } from '@prisma/client'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
+import { bulkEditSchema } from '@/lib/validation'
 
-// Editable fields for bulk update
+// Editable fields for bulk update (explicit whitelist)
 const EDITABLE_FIELDS = ['tanggal', 'kodeExtend', 'qty', 'settle', 'dept', 'brand', 'modul', 'pembayaran', 'program', 'crewId'] as const
 type EditableField = (typeof EDITABLE_FIELDS)[number]
 
 export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return unauthorized()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-bulk-edit:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
 
     const body = await request.json()
     const { saleIds, updates } = body as {
       saleIds: string[]
       updates: Partial<Record<EditableField, string | number | null>>
+    }
+
+    // P0.7: Input validation with Zod
+    const parsed = bulkEditSchema.safeParse({ saleIds, fields: updates })
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
+      return NextResponse.json({ error: firstError }, { status: 400 })
     }
 
     // Validation
@@ -30,7 +44,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Tidak ada field yang diubah' }, { status: 400 })
     }
 
-    // Validate field names
+    // Validate field names (whitelist)
     const invalidFields = Object.keys(updates).filter(f => !EDITABLE_FIELDS.includes(f as EditableField))
     if (invalidFields.length > 0) {
       return NextResponse.json({ error: `Field tidak valid: ${invalidFields.join(', ')}` }, { status: 400 })
@@ -93,7 +107,7 @@ export async function PUT(request: NextRequest) {
     const fieldNames = Object.keys(updates).join(', ')
     logActivity('BULK_EDIT_SALE', {
       description: `Bulk edit ${result.count} penjualan: ${fieldNames}`,
-      details: { saleIds, updates },
+      details: { count: result.count },
     }).catch(() => {})
 
     return NextResponse.json({
@@ -102,6 +116,7 @@ export async function PUT(request: NextRequest) {
       notFound: saleIds.length - existingCount,
     })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Bulk edit sales error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized } from '@/lib/auth'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
 import { logActivity } from '@/lib/activity-logger'
+import { rateLimit, rateLimitHeaders, getClientId, RATE_LIMITS } from '@/lib/rate-limit'
 
 export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return unauthorized()
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-bulk-unclaim:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
 
     const body = await request.json()
     const { saleIds } = body as { saleIds: string[] }
@@ -41,6 +44,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true, updated: result.count })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Bulk unclaim error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logActivity } from '@/lib/activity-logger'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -15,6 +17,15 @@ function escapeCsv(value: string | number | null | undefined): string {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting — 10 exports per min
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`tiktok-export:${clientId}`, RATE_LIMITS.EXPORT)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const search = searchParams.get('search') || ''
     const status = searchParams.get('status') || ''
@@ -95,8 +106,8 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('TikTok export error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan saat mengekspor', detail: msg }, { status: 500 })
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('TikTok export error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan saat mengekspor' }, { status: 500 })
   }
 }

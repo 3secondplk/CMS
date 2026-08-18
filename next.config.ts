@@ -1,11 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  reactStrictMode: false,
+  reactStrictMode: true,
+  serverExternalPackages: ["@prisma/client", "bcryptjs", "pg", "sharp"],
 };
 
 export default nextConfig;

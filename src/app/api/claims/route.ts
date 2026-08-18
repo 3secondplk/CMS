@@ -2,12 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import * as XLSX from 'xlsx'
 import { logActivity } from '@/lib/activity-logger'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
+import { paginationSchema, claimSaleSchema, idSchema } from '@/lib/validation'
 
 // ─────────────────────────────────────────────
 // POST /api/claims — Upload Excel & Import as unclaimed sales
 // ─────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting — 3 imports per min
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-import:${clientId}`, RATE_LIMITS.IMPORT)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
@@ -244,6 +256,7 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Upload & import claim error:', error)
     return NextResponse.json(
       { error: 'Terjadi kesalahan saat memproses file' },
@@ -257,6 +270,15 @@ export async function POST(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-get:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
@@ -368,6 +390,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Get claims error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
@@ -380,6 +403,15 @@ export async function GET(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function PUT(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-put:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const body = await request.json()
     const { saleIds, crewId } = body as { saleIds?: string[]; crewId?: string }
 
@@ -519,6 +551,7 @@ export async function PUT(request: NextRequest) {
       crewName: crew.name,
     })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Claim sales error:', error)
     return NextResponse.json(
       { error: 'Terjadi kesalahan saat meng-claim' },
@@ -533,6 +566,15 @@ export async function PUT(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function PATCH(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-patch:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const body = await request.json()
     const { id, crewId, tanggal, kodeExtend, qty, settle, dept, brand, modul, pembayaran, program } = body as Record<string, unknown>
 
@@ -592,6 +634,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true, message: 'Data berhasil diperbarui', sale: updated })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Edit claim error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan saat mengubah data' }, { status: 500 })
   }
@@ -602,6 +645,15 @@ export async function PATCH(request: NextRequest) {
 // ─────────────────────────────────────────────
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`claims-delete:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -625,6 +677,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true, message: 'Data penjualan berhasil dihapus' })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Delete claim error:', error)
     return NextResponse.json(
       { error: 'Terjadi kesalahan saat menghapus' },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, unauthorized } from '@/lib/auth'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -65,13 +66,19 @@ interface ExportData {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await requireAuth()
-  if (!user) return unauthorized()
-
-  const { searchParams } = request.nextUrl
-  const clearExisting = searchParams.get('clearExisting') === 'true'
-
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting — 3 imports per min
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`data-import:${clientId}`, RATE_LIMITS.IMPORT)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
+    const { searchParams } = request.nextUrl
+    const clearExisting = searchParams.get('clearExisting') === 'true'
+
     // Parse uploaded JSON
     let jsonData: ExportData
     try {
@@ -236,6 +243,7 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error: unknown) {
+    if (error instanceof AuthenticationError) return unauthorized()
     const message = error instanceof Error ? error.message : 'Import failed'
     return NextResponse.json({ error: message }, { status: 500 })
   }

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import * as crypto from 'crypto'
+import bcrypt from 'bcryptjs'
 
 const db = new PrismaClient()
 
@@ -187,7 +188,9 @@ async function main() {
   console.log('🌱 Seeding database...\n')
 
   // ── 1. Create default admin ──
-  const hashedPassword = crypto.createHash('sha256').update('admin123').digest('hex')
+  // ⚠️ WARNING: Default credentials (admin/admin123) are for DEVELOPMENT ONLY.
+  // In production, use /api/auth/setup with SETUP_TOKEN to create the initial admin.
+  const hashedPassword = await bcrypt.hash('admin123', 12)
 
   await db.admin.upsert({
     where: { username: 'admin' },

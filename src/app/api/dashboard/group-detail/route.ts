@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
+import { groupDetailQuerySchema } from '@/lib/validation'
 
 // Helper: get week number (1-5)
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -60,12 +63,24 @@ function mergeSettleOnly(saleAgg: any[], tiktokAgg: any[]): Map<string, number> 
 // GET /api/dashboard/group-detail?groupId=xxx&period=daily
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`group-detail:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const period = searchParams.get('period') || 'daily'
 
-    if (!groupId) {
-      return NextResponse.json({ error: 'groupId diperlukan' }, { status: 400 })
+    // P0.7: Validate with Zod
+    const parsed = groupDetailQuerySchema.safeParse({ groupId, period })
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
+      return NextResponse.json({ error: firstError }, { status: 400 })
     }
 
     // Get current date in WIB (GMT+7)
@@ -116,7 +131,7 @@ export async function GET(request: NextRequest) {
 
     // Get group with crews
     const group = await db.group.findUnique({
-      where: { id: groupId },
+      where: { id: parsed.data.groupId },
       include: { crews: { orderBy: { name: 'asc' } } },
     })
 
@@ -266,8 +281,8 @@ export async function GET(request: NextRequest) {
       currentWeek,
     })
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('Group detail error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('Group detail error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }

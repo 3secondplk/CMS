@@ -107,6 +107,7 @@ export function getMonthRange(): { from: string; to: string } {
 }
 
 // ─── Safe Fetch with Timeout (8s) ────────────────────
+// eslint-disable-next-line no-undef
 export async function safeFetch(url: string, opts?: RequestInit, timeoutMs = 30000): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)

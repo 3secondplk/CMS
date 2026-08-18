@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized } from '@/lib/auth'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
 import { logActivity } from '@/lib/activity-logger'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
+import { crewCreateSchema, crewUpdateSchema } from '@/lib/validation'
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`crews-get:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const search = searchParams.get('search')
@@ -68,6 +79,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(crewsWithStats)
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Get crews error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
@@ -76,22 +88,23 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return unauthorized()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`crews-post:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
 
     const body = await request.json()
-    const { name, photo, employeeId, groupId } = body
 
-    if (!name || !employeeId || !groupId) {
-      return NextResponse.json({ error: 'Nama, ID Karyawan, dan Group harus diisi' }, { status: 400 })
+    // P0.7: Input validation with Zod
+    const parsed = crewCreateSchema.safeParse(body)
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
+      return NextResponse.json({ error: firstError }, { status: 400 })
     }
-
-    // SEC-06: Input length validation
-    if (name.length > 200) {
-      return NextResponse.json({ error: 'Nama maksimal 200 karakter' }, { status: 400 })
-    }
-    if (employeeId.length > 50) {
-      return NextResponse.json({ error: 'ID Karyawan maksimal 50 karakter' }, { status: 400 })
-    }
+    const { name, photo, employeeId, groupId } = parsed.data
 
     const crew = await db.crew.create({
       data: { name, photo: photo || null, employeeId, groupId },
@@ -107,6 +120,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(crew, { status: 201 })
   } catch (error: unknown) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Create crew error:', error)
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2002') {
       return NextResponse.json({ error: 'ID Karyawan sudah terdaftar' }, { status: 409 })
@@ -118,22 +132,23 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return unauthorized()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`crews-put:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
 
     const body = await request.json()
-    const { id, name, photo, employeeId, groupId } = body
 
-    if (!id) {
-      return NextResponse.json({ error: 'ID crew harus diisi' }, { status: 400 })
+    // P0.7: Input validation with Zod
+    const parsed = crewUpdateSchema.safeParse(body)
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
+      return NextResponse.json({ error: firstError }, { status: 400 })
     }
-
-    // SEC-06: Input length validation
-    if (name && name.length > 200) {
-      return NextResponse.json({ error: 'Nama maksimal 200 karakter' }, { status: 400 })
-    }
-    if (employeeId && employeeId.length > 50) {
-      return NextResponse.json({ error: 'ID Karyawan maksimal 50 karakter' }, { status: 400 })
-    }
+    const { id, name, photo, employeeId, groupId } = parsed.data
 
     const crew = await db.crew.update({
       where: { id },
@@ -148,6 +163,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(crew)
   } catch (error: unknown) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Update crew error:', error)
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
       return NextResponse.json({ error: 'Crew tidak ditemukan' }, { status: 404 })
@@ -162,7 +178,13 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return unauthorized()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`crews-delete:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -185,6 +207,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Delete crew error:', error)
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
       return NextResponse.json({ error: 'Crew tidak ditemukan' }, { status: 404 })

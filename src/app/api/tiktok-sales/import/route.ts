@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logActivity } from '@/lib/activity-logger'
 import * as XLSX from 'xlsx'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -73,6 +75,15 @@ const VALID_STATUSES = new Set(['Pengiriman', 'Selesai', 'Retur', 'Batal'])
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting — 3 imports per min
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`tiktok-import:${clientId}`, RATE_LIMITS.IMPORT)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
@@ -268,8 +279,8 @@ export async function POST(request: NextRequest) {
       errorCount: errors.length,
     })
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('TikTok import error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan saat mengimpor', detail: msg }, { status: 500 })
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('TikTok import error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan saat mengimpor' }, { status: 500 })
   }
 }

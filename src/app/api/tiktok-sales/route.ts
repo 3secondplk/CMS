@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logActivity } from '@/lib/activity-logger'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
+import { tiktokSaleCreateSchema, TIKTOK_SORT_FIELDS, idSchema } from '@/lib/validation'
 
 // ─── GET: List TikTok sales with filters ────────────────
 export async function GET(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`tiktok-sales-get:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '50')
@@ -13,8 +25,11 @@ export async function GET(request: NextRequest) {
     const crewId = searchParams.get('crewId') || ''
     const dateFrom = searchParams.get('dateFrom') || ''
     const dateTo = searchParams.get('dateTo') || ''
-    const sortField = searchParams.get('sortField') || 'createdAt'
+    const rawSortField = searchParams.get('sortField') || 'createdAt'
     const sortDir = searchParams.get('sortDir') || 'desc'
+
+    // P0.7: Whitelist sort field to prevent injection
+    const sortField = (TIKTOK_SORT_FIELDS as readonly string[]).includes(rawSortField) ? rawSortField : 'createdAt'
 
     const where: any = {}
 
@@ -68,22 +83,34 @@ export async function GET(request: NextRequest) {
         count: summary._count,
       },
     })
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('TikTok sales GET error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
+  } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('TikTok sales GET error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
 // ─── POST: Create new TikTok sale ───────────────────────
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { tanggal, idOrder, status, artikel, size, qty, revenue, settle, crewId } = body
+    const user = await requireAuth()
 
-    if (!tanggal || !idOrder || !artikel) {
-      return NextResponse.json({ error: 'Tanggal, ID Order, dan Artikel wajib diisi' }, { status: 400 })
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`tiktok-sales-post:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
     }
+
+    const body = await request.json()
+
+    // P0.7: Input validation with Zod
+    const parsed = tiktokSaleCreateSchema.safeParse(body)
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
+      return NextResponse.json({ error: firstError }, { status: 400 })
+    }
+    const { tanggal, idOrder, status, artikel, size, qty, revenue, settle, crewId } = parsed.data
 
     const sale = await db.tikTokSale.create({
       data: {
@@ -92,9 +119,9 @@ export async function POST(request: NextRequest) {
         status: status || 'Pengiriman',
         artikel: artikel.trim(),
         size: size?.trim() || null,
-        qty: parseInt(qty) || 1,
-        revenue: parseFloat(revenue) || 0,
-        settle: parseFloat(settle) || 0,
+        qty: qty || 1,
+        revenue: revenue || 0,
+        settle: settle || 0,
         crewId: crewId || null,
       },
       include: {
@@ -102,23 +129,34 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    await logActivity('TikTok Sale Created', `Order ${sale.idOrder} — ${sale.artikel}`, sale.crew?.name)
+    await logActivity('TikTok Sale Created', { description: `Order ${sale.idOrder} — ${sale.artikel}`, crewName: sale.crew?.name })
 
     return NextResponse.json(sale, { status: 201 })
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('TikTok sale POST error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
+  } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('TikTok sale POST error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
 // ─── PUT: Update a TikTok sale ──────────────────────────
 export async function PUT(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`tiktok-sales-put:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const body = await request.json()
     const { id, ...data } = body
 
-    if (!id) {
+    // P0.7: ID validation
+    const idResult = idSchema.safeParse(id)
+    if (!idResult.success) {
       return NextResponse.json({ error: 'ID wajib' }, { status: 400 })
     }
 
@@ -140,19 +178,28 @@ export async function PUT(request: NextRequest) {
       },
     })
 
-    await logActivity('TikTok Sale Updated', `Order ${sale.idOrder} — ${sale.artikel}`, sale.crew?.name)
+    await logActivity('TikTok Sale Updated', { description: `Order ${sale.idOrder} — ${sale.artikel}`, crewName: sale.crew?.name })
 
     return NextResponse.json(sale)
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('TikTok sale PUT error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
+  } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('TikTok sale PUT error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }
 
 // ─── DELETE: Delete TikTok sale(s) ──────────────────────
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await requireAuth()
+
+    // P0.6: Rate limiting
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`tiktok-sales-delete:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+    }
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
     const ids = searchParams.get('ids')
@@ -160,7 +207,7 @@ export async function DELETE(request: NextRequest) {
     if (ids) {
       const idList = ids.split(',')
       const deleted = await db.tikTokSale.deleteMany({ where: { id: { in: idList } } })
-      await logActivity('TikTok Sale Batch Deleted', `${deleted.count} penjualan TikTok dihapus`)
+      await logActivity('TikTok Sale Batch Deleted', { description: `${deleted.count} penjualan TikTok dihapus` })
       return NextResponse.json({ deleted: deleted.count })
     }
 
@@ -170,12 +217,12 @@ export async function DELETE(request: NextRequest) {
 
     const sale = await db.tikTokSale.findUnique({ where: { id }, include: { crew: { select: { name: true } } } })
     await db.tikTokSale.delete({ where: { id } })
-    await logActivity('TikTok Sale Deleted', `Order ${sale?.idOrder} — ${sale?.artikel}`, sale?.crew?.name)
+    await logActivity('TikTok Sale Deleted', { description: `Order ${sale?.idOrder} — ${sale?.artikel}`, crewName: sale?.crew?.name })
 
     return NextResponse.json({ success: true })
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('TikTok sale DELETE error:', msg)
-    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
+  } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
+    console.error('TikTok sale DELETE error:', error)
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }

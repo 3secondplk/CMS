@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized } from '@/lib/auth'
+import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { rateLimit, rateLimitHeaders, getClientId, RATE_LIMITS } from '@/lib/rate-limit'
 
 // ─────────────────────────────────────────────
 // GET /api/management/report — Management report with filtering, pagination & summary
@@ -8,7 +9,10 @@ import { requireAuth, unauthorized } from '@/lib/auth'
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    if (!auth) return unauthorized()
+    const clientId = getClientId(request)
+    const rl = await rateLimit(`management-report:${clientId}`, RATE_LIMITS.API_STANDARD)
+    if (!rl.allowed) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
+
     const { searchParams } = new URL(request.url)
 
     const crewId = searchParams.get('crewId') || ''
@@ -128,6 +132,7 @@ export async function GET(request: NextRequest) {
       crewInfo,
     })
   } catch (error) {
+    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Management report error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan saat memuat laporan' }, { status: 500 })
   }
