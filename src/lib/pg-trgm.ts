@@ -52,10 +52,10 @@ export async function ensurePgTrgmIndexes(): Promise<boolean> {
  */
 export async function isPgTrgmAvailable(): Promise<boolean> {
   try {
-    const result = await db.$queryRaw<Array<{ count: bigint }>>`
-      SELECT count(*) as count FROM pg_extension WHERE extname = 'pg_trgm'
+    const result = await db.$queryRaw<Array<{ count: number }>>`
+      SELECT count(*)::int as count FROM pg_extension WHERE extname = 'pg_trgm'
     `
-    return result[0].count > 0n
+    return result[0].count > 0
   } catch {
     return false
   }
