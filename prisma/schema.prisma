@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────
 // CMS Crew Management System — Prisma Schema (PostgreSQL)
-// Deploy ke Vercel dengan Neon / Supabase / Railway DB
+// Siap deploy Vercel + Neon / Supabase / Vercel Postgres
 // ─────────────────────────────────────────────────────────
 
 generator client {
@@ -114,17 +114,4 @@ model ActivityLog {
   saleId      String?
   metadata    String?
   createdAt   DateTime @default(now())
-}
-
-// ─────────────────────────────────────────────────────────
-// Phase 4: PostgreSQL-backed atomic fixed-window rate limiter
-// Key = unique identifier (e.g. "login:192.168.1.1")
-// Count = requests in current window
-// windowStart/windowEnd = current fixed window boundaries
-// ─────────────────────────────────────────────────────────
-model RateLimitEntry {
-  key         String   @id
-  count       Int      @default(1)
-  windowStart DateTime @default(now())
-  windowEnd   DateTime
 }

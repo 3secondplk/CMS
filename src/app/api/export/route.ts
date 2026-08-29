@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
-import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
-import { withWorkMem } from '@/lib/work-mem'
+import { requireAuth, unauthorized } from '@/lib/auth'
 
 /** Format a number as Rp currency string */
 function fmtRpServer(n: number): string {
@@ -12,13 +10,7 @@ function fmtRpServer(n: number): string {
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth()
-
-    // P0.6: Rate limiting — 10 exports per min
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`export:${clientId}`, RATE_LIMITS.EXPORT)
-    if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-    }
+    if (!auth) return unauthorized()
     const { searchParams } = new URL(request.url)
     const format = searchParams.get('format')
     const crewId = searchParams.get('crewId')
@@ -129,26 +121,22 @@ export async function GET(request: NextRequest) {
       where.tanggal = tanggalFilter
     }
 
-    // Phase 5: use elevated work_mem to avoid disk spill on sort
-    // Measured: eliminates 9.6MB temp disk spill, ~31% faster
-    const sales = await withWorkMem('64MB', async () => {
-      return db.sale.findMany({
-        where,
-        include: {
-          crew: {
-            select: {
-              name: true,
-              group: {
-                select: {
-                  name: true,
-                },
+    const sales = await db.sale.findMany({
+      where,
+      include: {
+        crew: {
+          select: {
+            name: true,
+            group: {
+              select: {
+                name: true,
               },
             },
           },
         },
-        orderBy: { tanggal: 'asc' },
-        take: 50000, // SEC: Prevent OOM — max 50k rows exported
-      })
+      },
+      orderBy: { tanggal: 'asc' },
+      take: 50000, // SEC: Prevent OOM — max 50k rows exported
     })
 
     if (sales.length === 0) {
@@ -195,7 +183,6 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Export sales error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan saat mengekspor data' }, { status: 500 })
   }

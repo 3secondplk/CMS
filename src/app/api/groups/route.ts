@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
+import { requireAuth, unauthorized } from '@/lib/auth'
+import { resolveWeekTargets } from '@/lib/week-targets'
 import { logActivity } from '@/lib/activity-logger'
-import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
-import { groupCreateSchema, groupUpdateSchema } from '@/lib/validation'
 
 // Helper: get week number (1-5)
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -17,12 +16,7 @@ function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
 export async function GET() {
   try {
     const auth = await requireAuth()
-
-    // P0.6: Rate limiting
-    const rl = await rateLimit(`groups-get:server`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-    }
+    if (!auth) return unauthorized()
     const now = new Date()
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
@@ -78,9 +72,12 @@ export async function GET() {
       })
       const weeklyTotal = weekSales.reduce((sum, s) => sum + s.settle, 0)
 
-      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0]
-      const weekTargetPct = weeklyTargetPcts[currentWeek - 1] ?? 0
-      const weeklyAchievement = weekTargetPct > 0 ? (weeklyTotal / (monthlyTarget * weekTargetPct / 100)) * 100 : 0
+      // Auto-detect pct vs nominal week targets (see lib/week-targets.ts)
+      const wt = resolveWeekTargets(monthlyTarget, [
+        group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0,
+      ])
+      const weekTargetAmount = wt.amounts[currentWeek - 1] ?? 0
+      const weeklyAchievement = weekTargetAmount > 0 ? (weeklyTotal / weekTargetAmount) * 100 : 0
 
       return {
         ...group,
@@ -91,13 +88,12 @@ export async function GET() {
         weeklyTotal,
         weeklyAchievement,
         currentWeek,
-        currentWeekTarget: weekTargetPct,
+        currentWeekTarget: weekTargetAmount,
       }
     })
 
     return NextResponse.json(groupsWithStats)
   } catch (error) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Get groups error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
@@ -106,23 +102,18 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth()
-
-    // P0.6: Rate limiting
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`groups-post:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-    }
+    if (!auth) return unauthorized()
 
     const body = await request.json()
+    const { name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target, tiktokActive } = body
 
-    // P0.7: Input validation with Zod
-    const parsed = groupCreateSchema.safeParse(body)
-    if (!parsed.success) {
-      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
-      return NextResponse.json({ error: firstError }, { status: 400 })
+    if (!name) {
+      return NextResponse.json({ error: 'Nama group harus diisi' }, { status: 400 })
     }
-    const { name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target, tiktokActive } = parsed.data
+
+    if (typeof name !== 'string' || name.length > 200) {
+      return NextResponse.json({ error: 'Nama group maksimal 200 karakter' }, { status: 400 })
+    }
 
     const validateTarget = (val: unknown, fieldName: string): number | NextResponse => {
       if (val === undefined || val === null || val === '') return 0
@@ -167,7 +158,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(group, { status: 201 })
   } catch (error: unknown) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Create group error:', error)
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2002') {
       return NextResponse.json({ error: 'Nama group sudah ada' }, { status: 409 })
@@ -179,23 +169,18 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const auth = await requireAuth()
-
-    // P0.6: Rate limiting
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`groups-put:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-    }
+    if (!auth) return unauthorized()
 
     const body = await request.json()
+    const { id, name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target, tiktokActive } = body
 
-    // P0.7: Input validation with Zod
-    const parsed = groupUpdateSchema.safeParse(body)
-    if (!parsed.success) {
-      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
-      return NextResponse.json({ error: firstError }, { status: 400 })
+    if (!id) {
+      return NextResponse.json({ error: 'ID group harus diisi' }, { status: 400 })
     }
-    const { id, name, logo, monthlyTarget, week1Target, week2Target, week3Target, week4Target, week5Target, tiktokActive } = parsed.data
+
+    if (name !== undefined && (typeof name !== 'string' || name.length > 200)) {
+      return NextResponse.json({ error: 'Nama group maksimal 200 karakter' }, { status: 400 })
+    }
 
     const group = await db.group.update({
       where: { id },
@@ -214,7 +199,6 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(group)
   } catch (error: unknown) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Update group error:', error)
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
       return NextResponse.json({ error: 'Group tidak ditemukan' }, { status: 404 })
@@ -229,13 +213,7 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const auth = await requireAuth()
-
-    // P0.6: Rate limiting
-    const clientId = getClientId(request)
-    const rlDel = await rateLimit(`groups-delete:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rlDel.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rlDel.remaining, rlDel.resetTime) })
-    }
+    if (!auth) return unauthorized()
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -258,7 +236,6 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Delete group error:', error)
     if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2025') {
       return NextResponse.json({ error: 'Group tidak ditemukan' }, { status: 404 })

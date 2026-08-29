@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
-import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
-import { groupDetailQuerySchema } from '@/lib/validation'
+import { resolveWeekTargets } from '@/lib/week-targets'
 
 // Helper: get week number (1-5)
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -60,27 +58,19 @@ function mergeSettleOnly(saleAgg: any[], tiktokAgg: any[]): Map<string, number> 
   return map
 }
 
-// GET /api/dashboard/group-detail?groupId=xxx&period=daily
+// GET /api/dashboard/group-detail?groupId=xxx&period=daily&month=8&year=2026
+// - month/year (opsional): isolate data per bulan yang dipilih di filter
+//   dashboard. Tanpa param = bulan berjalan (WIB).
 export async function GET(request: NextRequest) {
   try {
-    const user = await requireAuth()
-
-    // P0.6: Rate limiting
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`group-detail:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-    }
-
     const { searchParams } = new URL(request.url)
     const groupId = searchParams.get('groupId')
     const period = searchParams.get('period') || 'daily'
+    const monthParam = searchParams.get('month')
+    const yearParam = searchParams.get('year')
 
-    // P0.7: Validate with Zod
-    const parsed = groupDetailQuerySchema.safeParse({ groupId, period })
-    if (!parsed.success) {
-      const firstError = parsed.error.issues[0]?.message || 'Invalid input'
-      return NextResponse.json({ error: firstError }, { status: 400 })
+    if (!groupId) {
+      return NextResponse.json({ error: 'groupId diperlukan' }, { status: 400 })
     }
 
     // Get current date in WIB (GMT+7)
@@ -88,9 +78,12 @@ export async function GET(request: NextRequest) {
     const utc = now.getTime() + now.getTimezoneOffset() * 60000
     const wibNow = new Date(utc + 7 * 3600000)
 
-    const currentMonth = wibNow.getMonth()
-    const currentYear = wibNow.getFullYear()
-    const dayOfMonth = wibNow.getDate()
+    const isCurrentMonth = !monthParam && !yearParam
+    const currentMonth = monthParam ? parseInt(monthParam) - 1 : wibNow.getMonth()
+    const currentYear = yearParam ? parseInt(yearParam) : wibNow.getFullYear()
+    // Untuk bulan lampau: "hari ini" = tanggal 1, minggu berjalan = W1 (pola sama dengan /api/dashboard)
+    const dayOfMonth = isCurrentMonth ? wibNow.getDate() : 1
+
     const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`
     const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
@@ -131,7 +124,7 @@ export async function GET(request: NextRequest) {
 
     // Get group with crews
     const group = await db.group.findUnique({
-      where: { id: parsed.data.groupId },
+      where: { id: groupId },
       include: { crews: { orderBy: { name: 'asc' } } },
     })
 
@@ -142,7 +135,6 @@ export async function GET(request: NextRequest) {
     const crewIds = group.crews.map(c => c.id)
 
     if (crewIds.length === 0) {
-      const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0]
       return NextResponse.json({
         group: { id: group.id, name: group.name, logo: group.logo, monthlyTarget: group.monthlyTarget },
         period: periodLabel,
@@ -150,9 +142,12 @@ export async function GET(request: NextRequest) {
         crews: [],
         groupTotal: { qty: 0, settle: 0, struk: 0, basketSize: 0, pricePoint: 0, tiktokSettle: 0 },
         crewMonthlyTarget: 0,
-        weeklyTargetPcts,
+        weeklyTargetPcts: resolveWeekTargets(group.monthlyTarget, [
+          group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0,
+        ]).pcts,
         crewWeeklyTargets: [0, 0, 0, 0, 0],
         currentWeek,
+        reportSummary: { rows: [], totalQty: 0, totalNetto: 0 },
       })
     }
 
@@ -185,11 +180,14 @@ export async function GET(request: NextRequest) {
     const tiktokSettleMap = new Map(tiktokAgg.map(a => [a.crewId, a._sum.settle ?? 0]))
     const strukMap = new Map(strukResult.map(r => [r.crewId, Number(r.count)]))
 
-    // Target calculation
+    // Target calculation — auto-detect pct vs nominal week targets (lib/week-targets.ts)
     const crewCount = group.crews.length
     const crewMonthlyTarget = crewCount > 0 ? Math.round(group.monthlyTarget / crewCount) : 0
-    const weeklyTargetPcts = [group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0]
-    const crewWeeklyTargets = weeklyTargetPcts.map(pct => Math.round((crewMonthlyTarget * pct) / 100))
+    const wt = resolveWeekTargets(group.monthlyTarget, [
+      group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0,
+    ])
+    const weeklyTargetPcts = wt.pcts
+    const crewWeeklyTargets = wt.amounts.map(amount => crewCount > 0 ? Math.round(amount / crewCount) : 0)
     const crewCurrentWeekTarget = crewWeeklyTargets[currentWeek - 1] ?? 0
 
     // Query per-week aggregation (Sale + TikTokSale merged per week)
@@ -269,6 +267,38 @@ export async function GET(request: NextRequest) {
     const groupBasketSize = groupTotalStruk > 0 ? Math.round((groupTotalQty / groupTotalStruk) * 100) / 100 : 0
     const groupPricePoint = groupTotalQty > 0 ? Math.round(groupTotalSettle / groupTotalQty) : 0
 
+    // ─── Report Summary: Penjualan Brand & Dept (isolated per zoning ini),
+    // ─── berdasarkan CLAIM penjualan crew pada periode terpilih ───
+    const reportSales = await db.sale.findMany({
+      where: {
+        crewId: { not: null },
+        crew: { groupId },
+        tanggal: prismaDateFilter,
+      },
+      select: { idPenjualan: true, brand: true, dept: true, qty: true, netto: true },
+    })
+    interface ReportRow { brand: string; dept: string; qty: number; netto: number; struk: Set<string>; strukNull: number }
+    const reportMap = new Map<string, ReportRow>()
+    for (const s of reportSales) {
+      const brand = s.brand && s.brand.trim() !== '' ? s.brand.trim() : '—'
+      const dept = s.dept && s.dept.trim() !== '' ? s.dept.trim() : '—'
+      const key = `${brand}||${dept}`
+      if (!reportMap.has(key)) reportMap.set(key, { brand, dept, qty: 0, netto: 0, struk: new Set(), strukNull: 0 })
+      const row = reportMap.get(key)!
+      row.qty += s.qty
+      row.netto += s.netto
+      if (s.idPenjualan) row.struk.add(s.idPenjualan)
+      else row.strukNull += 1
+    }
+    const reportRows = Array.from(reportMap.values())
+      .map(r => ({ brand: r.brand, dept: r.dept, qty: r.qty, netto: r.netto, struk: r.struk.size + r.strukNull }))
+      .sort((a, b) => b.netto - a.netto || b.qty - a.qty || a.brand.localeCompare(b.brand) || a.dept.localeCompare(b.dept))
+    const reportSummary = {
+      rows: reportRows,
+      totalQty: reportRows.reduce((t, r) => t + r.qty, 0),
+      totalNetto: reportRows.reduce((t, r) => t + r.netto, 0),
+    }
+
     return NextResponse.json({
       group: { id: group.id, name: group.name, logo: group.logo, monthlyTarget: group.monthlyTarget },
       period: periodLabel,
@@ -279,10 +309,11 @@ export async function GET(request: NextRequest) {
       weeklyTargetPcts,
       crewWeeklyTargets,
       currentWeek,
+      reportSummary,
     })
   } catch (error: unknown) {
-    if (error instanceof AuthenticationError) return unauthorized()
-    console.error('Group detail error:', error)
-    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('Group detail error:', msg)
+    return NextResponse.json({ error: 'Terjadi kesalahan', detail: msg }, { status: 500 })
   }
 }

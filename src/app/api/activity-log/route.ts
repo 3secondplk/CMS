@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
-import { rateLimit, getClientId, RATE_LIMITS, rateLimitHeaders } from '@/lib/rate-limit'
-import { paginationSchema } from '@/lib/validation'
+import { requireAuth, unauthorized } from '@/lib/auth'
 
 // ─────────────────────────────────────────────
 // GET /api/activity-log — Fetch recent activity logs
@@ -10,22 +8,10 @@ import { paginationSchema } from '@/lib/validation'
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth()
-
-    // P0.6: Rate limiting
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`activity-log:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-    }
+    if (!auth) return unauthorized()
 
     const { searchParams } = new URL(request.url)
-
-    // P0.7: Input validation with Zod
-    const parsed = paginationSchema.safeParse({
-      limit: searchParams.get('limit') || '50',
-      page: '1',
-    })
-    const limit = parsed.success ? parsed.data.limit : 50
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50')))
 
     const logs = await db.activityLog.findMany({
       orderBy: { createdAt: 'desc' },
@@ -55,7 +41,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(shaped)
   } catch (error) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Get activity log error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
-import { rateLimit, rateLimitHeaders, getClientId, RATE_LIMITS } from '@/lib/rate-limit'
+import { requireAuth, unauthorized } from '@/lib/auth'
 
 // ─────────────────────────────────────────────
 // GET /api/management/report — Management report with filtering, pagination & summary
@@ -9,10 +8,7 @@ import { rateLimit, rateLimitHeaders, getClientId, RATE_LIMITS } from '@/lib/rat
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth()
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`management-report:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-
+    if (!auth) return unauthorized()
     const { searchParams } = new URL(request.url)
 
     const crewId = searchParams.get('crewId') || ''
@@ -31,13 +27,13 @@ export async function GET(request: NextRequest) {
     // Search across kodeExtend, brand, dept (case-insensitive)
     if (search) {
       const searchConditions: Record<string, unknown>[] = [
-        { kodeExtend: { contains: search, mode: 'insensitive' } },
-        { brand: { contains: search, mode: 'insensitive' } },
-        { dept: { contains: search, mode: 'insensitive' } },
+        { kodeExtend: { contains: search } },
+        { brand: { contains: search } },
+        { dept: { contains: search } },
       ]
       // If searching within a specific crew, also search crew name
       if (crewId) {
-        searchConditions.push({ crew: { name: { contains: search, mode: 'insensitive' } } })
+        searchConditions.push({ crew: { name: { contains: search } } })
       }
       where.OR = searchConditions
     }
@@ -132,7 +128,6 @@ export async function GET(request: NextRequest) {
       crewInfo,
     })
   } catch (error) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Management report error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan saat memuat laporan' }, { status: 500 })
   }

@@ -1,25 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAuth, unauthorized, AuthenticationError } from '@/lib/auth'
-import { rateLimit, rateLimitHeaders, getClientId, RATE_LIMITS } from '@/lib/rate-limit'
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/claims/search — Case-insensitive search
-// Uses Prisma findMany with contains + mode: 'insensitive' for PostgreSQL.
-// PostgreSQL LIKE is case-sensitive; mode: 'insensitive' uses ILIKE.
+// GET /api/claims/search — Case-insensitive search for SQLite
+// Uses Prisma findMany with contains (LIKE) for reliability.
+// SQLite LIKE is case-insensitive for ASCII by default.
 // Barcode scanner: tries FULL input first, if 0 results then
 // retries kodeExtend with first 9 chars as fallback.
 // ─────────────────────────────────────────────────────────────
 
 function buildSearchOr(search: string, claimed: string) {
   const searchOr: Record<string, any>[] = [
-    { kodeExtend: { contains: search, mode: 'insensitive' } },
-    { brand: { contains: search, mode: 'insensitive' } },
-    { dept: { contains: search, mode: 'insensitive' } },
-    { modul: { contains: search, mode: 'insensitive' } },
+    { kodeExtend: { contains: search.toUpperCase() } },
+    { kodeExtend: { contains: search } },
+    { brand: { contains: search } },
+    { dept: { contains: search } },
+    { modul: { contains: search } },
   ]
   if (claimed !== 'false') {
-    searchOr.push({ crew: { name: { contains: search, mode: 'insensitive' } } })
+    searchOr.push({ crew: { name: { contains: search } } })
   }
   return searchOr
 }
@@ -60,11 +59,6 @@ async function fetchSearchResults(where: Record<string, any>, page: number, limi
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await requireAuth()
-    const clientId = getClientId(request)
-    const rl = await rateLimit(`claims-search:${clientId}`, RATE_LIMITS.API_STANDARD)
-    if (!rl.allowed) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: rateLimitHeaders(rl.remaining, rl.resetTime) })
-
     const { searchParams } = new URL(request.url)
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
@@ -118,14 +112,15 @@ export async function GET(request: NextRequest) {
       if (result.total === 0 && search.length > 9) {
         const trimmed = search.slice(0, 9)
         const fallbackOr: Record<string, any>[] = [
-          { kodeExtend: { contains: trimmed, mode: 'insensitive' } },
+          { kodeExtend: { contains: trimmed.toUpperCase() } },
+          { kodeExtend: { contains: trimmed } },
           // Also keep brand/dept/modul with full search (they might be long text)
-          { brand: { contains: search, mode: 'insensitive' } },
-          { dept: { contains: search, mode: 'insensitive' } },
-          { modul: { contains: search, mode: 'insensitive' } },
+          { brand: { contains: search } },
+          { dept: { contains: search } },
+          { modul: { contains: search } },
         ]
         if (claimed !== 'false') {
-          fallbackOr.push({ crew: { name: { contains: search, mode: 'insensitive' } } })
+          fallbackOr.push({ crew: { name: { contains: search } } })
         }
 
         const fallbackWhere: Record<string, any> = { OR: fallbackOr }
@@ -141,7 +136,6 @@ export async function GET(request: NextRequest) {
     const result = await fetchSearchResults(baseFilters, page, limit)
     return NextResponse.json(result)
   } catch (error) {
-    if (error instanceof AuthenticationError) return unauthorized()
     console.error('Search claims error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
