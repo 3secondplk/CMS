@@ -16,7 +16,7 @@ import {
   DollarSign, ShoppingCart, Search, X, Sparkles, Heart,
   Monitor, Briefcase, Beaker, Code2, Smartphone, Clock, Sunset, FileUp, UserPlus, Keyboard, Download, ShoppingBag,
 } from 'lucide-react'
-import { fmtRp, fmtNum, getWIBDate, getWIBToday, monthNames, dayNames, currentYear, getWeekRange, getMonthRange, safeFetch } from '@/lib/cms-utils'
+import { fmtRp, fmtNum, getWIBDate, getWIBToday, monthNames, dayNames, currentYear, getWeekRange, getMonthRange, safeFetch, setStoredToken, clearStoredToken } from '@/lib/cms-utils'
 import type { CrewStat, GroupAchievement, DashboardData, Crew, Group, ClaimSale, GroupDetailData, DeleteConfirmState } from '@/lib/cms-types'
 
 import DashboardTab from '@/components/dashboard/DashboardTab'
@@ -240,10 +240,11 @@ export default function Home() {
     }
   }, [dashboard?.unclaimedCount])
 
-  // Check auth on mount
+  // Check auth on mount (GET /api/auth via safeFetch — Bearer token otomatis)
   useEffect(() => {
-    fetch('/api/auth').then(r => r.json()).then(d => {
+    safeFetch('/api/auth').then(r => r.json()).then(d => {
       if (d.authenticated) setIsAdmin(true)
+      else clearStoredToken()
     }).catch(() => {})
   }, [])
 
@@ -486,6 +487,9 @@ export default function Home() {
       const r = await safeFetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
       const d = await r.json()
       if (d.error) { toast.error(d.error); return }
+      // Simpan token → semua request via safeFetch otomatis kirim Authorization
+      // (cookie bisa diblokir browser saat app dalam iframe lintas-site).
+      if (d.token) setStoredToken(d.token)
       setIsAdmin(true)
       setAdminName(d.admin.name)
       toast.success(`Selamat datang, ${d.admin.name}!`)
@@ -494,6 +498,7 @@ export default function Home() {
 
   const handleLogout = async () => {
     await safeFetch('/api/auth', { method: 'DELETE' })
+    clearStoredToken()
     setIsAdmin(false)
     toast.success('Berhasil logout')
   }

@@ -25,6 +25,10 @@ export interface CrewStat {
     dateTo: number // end day of month
   }>
   currentWeek: number
+  // Shift hari ini dari jadwal (null = belum dijadwalkan) — dari target engine
+  crewShiftToday?: string | null
+  // Target harian crew hari ini (dari target engine, realtime)
+  crewTodayTarget?: number
   // Group raw targets for reference
   groupMonthlyTarget: number
   groupWeeklyTargetPcts: number[] // [W1%, W2%, W3%, W4%, W5%]
@@ -35,6 +39,8 @@ export interface GroupAchievement {
   monthlyTarget: number; monthlyTotal: number; tiktokMonthlyTotal: number; monthlyAchievement: number
   weeklyTarget: number; weeklyTotal: number; weeklyAchievement: number
   weekTargetPct: number; currentWeek: number; crewCount: number
+  // Persentase alokasi zoning (dari StoreConfig) — null jika engine tidak aktif
+  allocationPct?: number | null
   // Per-crew target breakdown
   crewMonthlyTarget: number // monthlyTarget / crewCount
   weeklyTargetPcts: number[] // [W1%, W2%, W3%, W4%, W5%]
@@ -109,9 +115,10 @@ export interface GroupDetailCrew {
   id: string; name: string; photo: string | null; employeeId: string
   totalQty: number; totalSettle: number; totalStruk: number
   basketSize: number; pricePoint: number; itemCount: number
-  // Target info
+  // Target info (per-crew — dari target engine bila aktif)
   crewMonthlyTarget: number
   crewCurrentWeekTarget: number
+  crewShiftToday?: string | null
   crewMonthlyAchievement: number
   crewWeeklyAchievement: number
   // Per-week achievements (all 5 weeks)
@@ -127,7 +134,7 @@ export interface GroupDetailCrew {
 }
 
 export interface GroupDetailData {
-  group: { id: string; name: string; logo: string | null; monthlyTarget: number }
+  group: { id: string; name: string; logo: string | null; monthlyTarget: number; allocationPct?: number | null }
   period: string; periodKey: string
   crews: GroupDetailCrew[]
   groupTotal: { qty: number; settle: number; struk: number; basketSize: number; pricePoint: number }
@@ -165,4 +172,86 @@ export interface DeleteConfirmState {
   ids?: string[]
   id?: string
   name: string
+}
+
+// ─── Target Breakdown (Toko → Zoning → Shift → Crew) ───────────────────────
+
+export interface ShiftTypeItem {
+  id: string; code: string; label: string; weight: number
+  sortOrder: number; isActive: boolean
+}
+
+export interface StoreConfigData {
+  id?: string
+  monthlyTarget: number
+  week1Pct: number; week2Pct: number; week3Pct: number; week4Pct: number; week5Pct: number
+  /** Bobot relatif per hari (Senin..Minggu) — Σ bebas, dinormalisasi engine */
+  dayPcts?: number[]
+  updatedAt?: string
+}
+
+export interface GroupAllocationItem {
+  id: string; name: string; logo: string | null
+  allocationPct: number
+  derivedMonthlyTarget: number
+  crewCount: number
+}
+
+export interface BreakdownCrewRow {
+  id: string; name: string; employeeId: string; photo: string | null
+  shiftCode: string | null // null = belum dijadwalkan
+  shiftLabel: string | null
+  shiftWeight: number
+  todayTarget: number
+  weeklyTarget: number
+  monthlyTarget: number
+}
+
+export interface BreakdownGroupRow {
+  id: string; name: string; logo: string | null
+  allocationPct: number
+  monthlyTarget: number
+  weeklyTarget: number
+  todayTarget: number
+  unassignedToday: number // target tak terdistribusi (semua crew Off)
+  legacyEqualSplitToday: boolean // fallback split rata (belum ada jadwal)
+  sumCrewToday: number
+  balancedToday: boolean
+  crews: BreakdownCrewRow[]
+}
+
+export interface BreakdownData {
+  engineActive: boolean
+  message?: string
+  year: number; month: number; daysInMonth: number
+  focusDate: string; focusWeek: number
+  config: { monthlyTarget: number; weekPcts: number[]; dayPcts?: number[] } | null
+  shiftTypes: ShiftTypeItem[]
+  allocationSum: number
+  store: {
+    monthlyTarget: number
+    weeklyTargets: number[]
+    weeklyPcts: number[]
+    todayTarget: number
+    dailyTargets: Array<{ date: string; day: number; week: number; target: number }>
+  } | null
+  groups: BreakdownGroupRow[]
+  checks: {
+    today: { sumCrew: number; sumGroup: number; store: number; balanced: boolean }
+    monthly: { sumCrew: number; sumGroup: number; store: number; balanced: boolean }
+  } | null
+}
+
+export interface ScheduleEntry {
+  crewId: string; tanggal: string; shiftCode: string | null
+}
+
+export interface ScheduleData {
+  year: number; month: number; daysInMonth: number
+  crews: Array<{
+    id: string; name: string; employeeId: string; photo: string | null
+    groupId: string; group: { id: string; name: string }
+  }>
+  shiftTypes: ShiftTypeItem[]
+  shifts: ScheduleEntry[]
 }
