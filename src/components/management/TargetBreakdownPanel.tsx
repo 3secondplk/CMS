@@ -36,6 +36,20 @@ const SESSION_MSG = 'Sesi berakhir, silakan login ulang'
 const DAY_NAMES = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 const DEFAULT_DAY_PCTS = [3, 3, 3, 3, 3, 4.5, 4.5]
 
+// Config default saat install baru (tabel StoreConfig masih kosong — mis. deploy
+// Vercel tanpa seed): form tetap terisi dan tombol Simpan langsung aktif.
+// PUT /api/store-config otomatis CREATE row saat belum ada — jadi aman disimpan.
+const FALLBACK_CONFIG: StoreConfigData = {
+  id: '__new__',
+  monthlyTarget: 0,
+  week1Pct: 25,
+  week2Pct: 21,
+  week3Pct: 23,
+  week4Pct: 26,
+  week5Pct: 5,
+  dayPcts: DEFAULT_DAY_PCTS,
+}
+
 const scrollbarCls =
   '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/25'
 
@@ -183,6 +197,8 @@ export default function TargetBreakdownPanel({ onChanged }: { onChanged?: () => 
   // ── Store config (Sections 1–2) ──
   const [configLoading, setConfigLoading] = useState(true)
   const [config, setConfig] = useState<StoreConfigData | null>(null)
+  // true saat server belum punya StoreConfig (install baru / deploy tanpa seed)
+  const [configIsNew, setConfigIsNew] = useState(false)
   const [allocations, setAllocations] = useState<GroupAllocationItem[]>([])
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeItem[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
@@ -227,9 +243,14 @@ export default function TargetBreakdownPanel({ onChanged }: { onChanged?: () => 
       }>('/api/store-config')
       if (!res.ok) {
         toast.error(res.error)
+        // Form tetap terisi default (jangan matikan UI) — percobaan simpan akan
+        // memicu toast auth/koneksi yang jelas.
+        setConfig(prev => prev ?? FALLBACK_CONFIG)
+        setConfigIsNew(true)
         return
       }
-      setConfig(res.data.config)
+      setConfig(res.data.config ?? FALLBACK_CONFIG)
+      setConfigIsNew(!res.data.config)
       setAllocations(res.data.allocations)
       setShiftTypes(res.data.shiftTypes)
     } finally {
@@ -319,11 +340,22 @@ export default function TargetBreakdownPanel({ onChanged }: { onChanged?: () => 
   const allocOk = allocations.length === 0 || Math.abs(allocSum - 100) < 0.001
   const derivedMonthly = allocateByWeights(monthlyTargetNum, allocWeights)
 
-  const configValid =
-    monthlyTargetEff.trim() !== '' && monthlyTargetNum >= 0 && weekOk && dayOk && allocOk && !configLoading
+  // Alasan kenapa config belum valid — ditampilkan saat user KLIK simpan
+  // (tombol tidak pernah mati diam-diam; klik selalu memberi feedback).
+  const configIssues: string[] = []
+  if (monthlyTargetEff.trim() === '' || monthlyTargetNum < 0 || !Number.isFinite(monthlyTargetNum)) {
+    configIssues.push('Target bulanan belum diisi')
+  }
+  if (!weekOk) configIssues.push(`Σ distribusi mingguan harus 100% (saat ini ${sumText(weekSum)}%)`)
+  if (!dayOk) configIssues.push('Persentase harian harus angka 0–100')
+  if (!allocOk) configIssues.push(`Σ alokasi zoning harus 100% (saat ini ${sumText(allocSum)}%)`)
 
   const saveConfig = async () => {
-    if (!configValid) return
+    if (savingConfig || configLoading) return
+    if (configIssues.length > 0) {
+      toast.error(configIssues.join(' · '))
+      return
+    }
     setSavingConfig(true)
     const res = await apiSend<StoreConfigData>('/api/store-config', 'PUT', {
       monthlyTarget: Math.round(monthlyTargetNum),
@@ -546,6 +578,17 @@ export default function TargetBreakdownPanel({ onChanged }: { onChanged?: () => 
               <ConfigSkeleton />
             ) : (
               <>
+                {configIsNew && (
+                  <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    <Info className="h-4 w-4" />
+                    <AlertTitle className="text-sm font-bold">Konfigurasi belum ada — install baru terdeteksi</AlertTitle>
+                    <AlertDescription className="text-xs">
+                      Nilai default sudah diisi otomatis (minggu 25/21/23/26/5 % · harian 3/3/3/3/3/4,5/4,5 %).
+                      Isi <b>Target Bulanan</b>, sesuaikan <b>Alokasi Zoning</b> di kartu berikutnya (Σ = 100%),
+                      lalu klik Simpan. Klik simpan kapan saja untuk melihat pesan validasi bila ada yang kurang.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="tb-monthly" className="text-xs font-semibold">
                     Target Bulanan (Rp)
@@ -668,7 +711,7 @@ export default function TargetBreakdownPanel({ onChanged }: { onChanged?: () => 
                   </p>
                   <Button
                     onClick={saveConfig}
-                    disabled={!configValid || savingConfig}
+                    disabled={savingConfig || configLoading}
                     className="h-11 w-full bg-[#E14227] text-white hover:bg-[#c93a21] sm:h-9 sm:w-auto"
                   >
                     {savingConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

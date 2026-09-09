@@ -68,6 +68,8 @@ export interface TrendData {
 }
 
 export interface DashboardData {
+  /** true = target crew dari engine breakdown Toko→Zoning→Shift→Crew */
+  engineActive: boolean
   crewStats: CrewStat[]; totals: {
     // Claimed-only period totals (sales assigned to crews)
     today: number; week: number; month: number; todayQty: number; weekQty: number; monthQty: number
@@ -119,6 +121,8 @@ export interface GroupDetailCrew {
   crewMonthlyTarget: number
   crewCurrentWeekTarget: number
   crewShiftToday?: string | null
+  // Target harian crew hari ini (dari target engine, realtime)
+  crewTodayTarget?: number
   crewMonthlyAchievement: number
   crewWeeklyAchievement: number
   // Per-week achievements (all 5 weeks)
@@ -143,6 +147,10 @@ export interface GroupDetailData {
   weeklyTargetPcts: number[] // [W1%, W2%, W3%, W4%, W5%]
   crewWeeklyTargets: number[] // [W1, W2, W3, W4, W5] per-crew amounts
   currentWeek: number
+  // Target harian (engine realtime Toko→Zoning→Shift→Crew)
+  engineActive?: boolean
+  todayIso?: string // yyyy-mm-dd WIB
+  groupTodayTarget?: number // target harian zoning hari ini
   // Detail Report Summary — Penjualan Brand & Dept (isolated per zoning, claim crew only)
   reportSummary: {
     rows: Array<{ brand: string; dept: string; qty: number; netto: number; struk: number }>

@@ -244,7 +244,9 @@ export async function GET(request: NextRequest) {
         }),
       ])
     )
-    const weekAggResults = crewIds.length > 0 ? await Promise.all(weekAggPromises) : weekRanges.map(() => [[], []])
+    type WeekSettleAgg = { crewId: string | null; _sum: { settle: number | null } }
+    const weekAggResults: Array<[WeekSettleAgg[], WeekSettleAgg[]]> =
+      crewIds.length > 0 ? await Promise.all(weekAggPromises) : weekRanges.map(() => [[], []])
     const weekAggMaps = weekAggResults.map(([saleAgg, tkAgg]) => {
       const map = new Map(saleAgg.map((a: any) => [a.crewId, a._sum.settle ?? 0]))
       for (const a of tkAgg) {
@@ -589,6 +591,8 @@ export async function GET(request: NextRequest) {
     const topCrews = sortedCrews.slice(0, 3)
 
     return NextResponse.json({
+      // true = target dari engine breakdown Toko→Zoning→Shift→Crew aktif
+      engineActive,
       crewStats: sortedCrews,
       totals: {
         ...totals,

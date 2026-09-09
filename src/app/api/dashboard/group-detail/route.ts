@@ -158,6 +158,9 @@ export async function GET(request: NextRequest) {
         ]).pcts,
         crewWeeklyTargets: [0, 0, 0, 0, 0],
         currentWeek,
+        engineActive,
+        todayIso: todayStr,
+        groupTodayTarget: engineGroup ? (engineGroup.daily.get(todayStr) ?? 0) : 0,
         reportSummary: { rows: [], totalQty: 0, totalNetto: 0 },
       })
     }
@@ -263,6 +266,8 @@ export async function GET(request: NextRequest) {
       })
 
       const myShiftToday = engineCrew ? (engineCrew.shiftByDate.get(todayStr) || null) : null
+      // Target harian crew pada tanggal berjalan (bobot shift × jadwal realtime)
+      const myTodayTarget = engineCrew ? (engineCrew.daily.get(todayStr) ?? 0) : 0
 
       return {
         id: crew.id,
@@ -279,6 +284,7 @@ export async function GET(request: NextRequest) {
         crewMonthlyTarget: myMonthlyTarget,
         crewCurrentWeekTarget: myCurrentWeekTarget,
         crewShiftToday: myShiftToday,
+        crewTodayTarget: myTodayTarget,
         crewMonthlyAchievement: monthAchievement,
         crewWeeklyAchievement: weekAchievement,
         crewWeeklyDetails,
@@ -326,10 +332,16 @@ export async function GET(request: NextRequest) {
       totalNetto: reportRows.reduce((t, r) => t + r.netto, 0),
     }
 
+    const groupTodayTarget = engineGroup ? (engineGroup.daily.get(todayStr) ?? 0) : 0
+
     return NextResponse.json({
       group: { id: group.id, name: group.name, logo: group.logo, monthlyTarget: effGroupMonthly, allocationPct: engineGroup ? engineGroup.allocationPct : null },
       period: periodLabel,
       periodKey: period,
+      // Target harian context (engine realtime Toko→Zoning→Shift→Crew)
+      engineActive,
+      todayIso: todayStr,
+      groupTodayTarget,
       crews,
       groupTotal: { qty: groupTotalQty, settle: groupTotalSettle, struk: groupTotalStruk, basketSize: groupBasketSize, pricePoint: groupPricePoint, tiktokSettle: groupTiktokSettle },
       crewMonthlyTarget,
