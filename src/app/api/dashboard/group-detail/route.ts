@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { resolveWeekTargets } from '@/lib/week-targets'
 import { loadMonthTargets } from '@/lib/target-service'
-import type { EngineCrewTarget } from '@/lib/target-engine'
+import { allocateCrewEven, type EngineCrewTarget } from '@/lib/target-engine'
 
 // Helper: get week number (1-5)
 function getWeekNumber(dayOfMonth: number, daysInMonth: number): number {
@@ -194,21 +194,25 @@ export async function GET(request: NextRequest) {
     const tiktokSettleMap = new Map(tiktokAgg.map(a => [a.crewId, a._sum.settle ?? 0]))
     const strukMap = new Map(strukResult.map(r => [r.crewId, Number(r.count)]))
 
-    // Target calculation
     // ENGINE AKTIF: per-crew target dari breakdown Toko→Zoning→Shift→Crew.
+    // Mingguan & bulanan crew = split rata (allocateCrewEven — sama dengan
+    // engine), BUKAN pembagian manual, agar header & baris crew identik.
     // LEGACY: equal split / crewCount + auto-detect pct vs nominal (lib/week-targets.ts)
     const crewCount = group.crews.length
     const effGroupMonthly = engineGroup ? engineGroup.monthly : group.monthlyTarget
     const wt = resolveWeekTargets(effGroupMonthly, [
       group.week1Target, group.week2Target, group.week3Target, group.week4Target, group.week5Target ?? 0,
     ])
+    const evenPerCrew = crewCount > 0
+      ? (total: number) => (allocateCrewEven(total, crewCount)[0] ?? 0)
+      : () => 0
     const engineWeekly = engineGroup
-      ? engineGroup.weekly.map(w => (crewCount > 0 ? Math.round(w / crewCount) : 0))
+      ? [0, 1, 2, 3, 4].map(w => evenPerCrew(engineGroup.weekly[w]))
       : null
     const weeklyTargetPcts = engineWeekly
       ? engineWeekly.map(w => (effGroupMonthly > 0 ? Math.round((w / effGroupMonthly) * 100) : 0))
       : wt.pcts
-    const crewMonthlyTarget = crewCount > 0 ? Math.round(effGroupMonthly / crewCount) : 0
+    const crewMonthlyTarget = engineGroup ? evenPerCrew(effGroupMonthly) : (crewCount > 0 ? Math.round(effGroupMonthly / crewCount) : 0)
     const crewWeeklyTargets = engineWeekly ?? wt.amounts.map(amount => crewCount > 0 ? Math.round(amount / crewCount) : 0)
 
     // Query per-week aggregation (Sale + TikTokSale merged per week)

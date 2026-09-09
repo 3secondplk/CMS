@@ -374,8 +374,9 @@ export default function PublicTargetSchedule() {
                 Target per Zoning &amp; Crew
               </CardTitle>
               <CardDescription>
-                Target tanggal {bd.focusDate} (minggu ke-{bd.focusWeek}). Crew Off / belum dijadwalkan
-                mendapat target Rp0 hari itu — porsinya didistribusikan ke crew yang ber-shift sesuai bobot.
+                Target tanggal {bd.focusDate} (minggu ke-{bd.focusWeek}). Target harian crew mengikuti bobot
+                shift — crew Off / belum dijadwalkan mendapat Rp0 hari itu dan porsinya dialihkan ke crew
+                yang ber-shift. Target <b>mingguan &amp; bulanan crew = target zoning ÷ jumlah crew</b> (sama rata).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 p-0">
@@ -560,8 +561,9 @@ export default function PublicTargetSchedule() {
                 <AlertTitle className="text-sm font-bold">Crew tanpa jadwal bulan ini</AlertTitle>
                 <AlertDescription className="text-xs">
                   {crewsWithoutShift.join(', ')} — belum punya satu pun shift di {monthNames[(month - 1) % 12]}.
-                  Crew tanpa jadwal mendapat target Rp0 setiap hari; porsi targetnya didistribusikan ke crew
-                  yang terjadwal sesuai bobot. Atur jadwal di Management → Target &amp; Jadwal.
+                  Target harian crew ini Rp0 setiap hari (porsinya dialihkan ke crew yang terjadwal sesuai
+                  bobot), namun target <b>mingguan &amp; bulanan tetap sama rata</b> dengan crew lain di
+                  zoning-nya (target zoning ÷ jumlah crew). Atur jadwal di Management → Target &amp; Jadwal.
                 </AlertDescription>
               </Alert>
             )}

@@ -6,12 +6,22 @@
 //     → Distribusi MINGGUAN   (week1..5Pct, Σ = 100%)
 //       → Target HARIAN       (minggu dibagi rata ke tanggal dalam minggu tsb)
 //         → ZONING / Group    (allocationPct, Σ = 100%)
-//           → CREW            (bobot shift dari ShiftType × jadwal CrewShift)
+//           → CREW HARIAN     (bobot shift dari ShiftType × jadwal CrewShift)
 //
 // BUSINESS RULE (dijamin oleh largest remainder allocation, uang integer Rupiah):
 //   Σ Target Crew        = Target Group
 //   Σ Target Group       = Target Toko
 //   → tidak boleh ada selisih (0 Rupiah) di setiap level & periode.
+//
+// ATURAN PERIODE PER CREW (fix "target mingguan/bulanan sama rata"):
+//   - Target MINGGUAN crew = Target mingguan GRUP ÷ jumlah crew di grup
+//   - Target BULANAN  crew = Target bulanan  GRUP ÷ jumlah crew di grup
+//   (split rata — TIDAK tergantung jadwal, karena jadwal antar crew tidak
+//    selalu seimbang. Yang membedakan antar crew HANYA target HARIAN,
+//    yang tetap mengikuti bobot shift per tanggal.)
+//   Konsekuensi: Σ target harian satu crew selama seminggu ≠ target
+//   mingguan crew tsb (ini BY DESIGN — harian operasional, mingguan/
+//   bulanan porsi adil per crew).
 //
 // PRINSIP PENTING:
 // - TIDAK ada snapshot target crew / histori assignment. Semua dihitung
@@ -236,6 +246,9 @@ export function allocateGroupDaily(storeDaily: number, allocationPcts: number[])
  * - Σ bobot > 0 → Σ crew = groupDaily PERSIS.
  * - Σ bobot = 0 (semua Off / tanpa jadwal terisi) → semua 0 + ditandai
  *   `unassignedAmount` agar grup tetap transparan (tidak ada leak diam-diam).
+ *
+ * HANYA untuk level HARIAN. Target mingguan & bulanan crew dihitung
+ * terpisah sebagai split rata (lihat allocateCrewEven).
  */
 export function allocateCrewDaily(
   groupDaily: number,
@@ -247,6 +260,16 @@ export function allocateCrewDaily(
     return { amounts: shiftWeights.map(() => 0), unassignedAmount: Math.max(0, Math.round(groupDaily || 0)) }
   }
   return { amounts: allocateByWeights(groupDaily, shiftWeights), unassignedAmount: 0 }
+}
+
+/**
+ * Split RATA target grup ke seluruh crew dalam grup (largest remainder,
+ * integer Rupiah, Σ hasil = total PERSIS).
+ * Dipakai untuk target MINGGUAN & BULANAN per crew — semua crew dalam
+ * grup mendapat porsi sama besar, apa pun jadwalnya.
+ */
+export function allocateCrewEven(groupTotal: number, crewCount: number): number[] {
+  return allocateByWeights(groupTotal, new Array(Math.max(0, crewCount)).fill(1))
 }
 
 // ─────────────── Full month computation (engine utama) ───────────────
@@ -385,10 +408,35 @@ export function computeMonthTargets(input: MonthTargetInput): MonthTargetResult 
         const crewTarget = gTarget.crews.get(crewIds[ci])!
         const amt = crewAmounts[ci] || 0
         crewTarget.daily.set(date, (crewTarget.daily.get(date) || 0) + amt)
-        crewTarget.monthly += amt
-        crewTarget.weekly[dayTarget.week - 1] += amt
         crewTarget.shiftByDate.set(date, shiftCodes[ci] || '')
       }
+    }
+  }
+
+  // ── Level 4b: Target MINGGUAN & BULANAN per crew = split rata grup ──
+  // Jadwal tidak selalu seimbang → weekly/monthly TIDAK diakumulasi dari
+  // harian (yang shift-weighted), melainkan dibagi rata: target grup ÷
+  // jumlah crew. Yang membedakan antar crew hanya target harian.
+  for (const gInput of input.groups) {
+    const gTarget = groups.get(gInput.id)!
+    const crewIds = gInput.crewIds
+    if (crewIds.length === 0) continue
+
+    // Mingguan: split rata tiap minggu (Σ crew minggu-W = grup minggu-W)
+    for (let w = 0; w < 5; w++) {
+      if (gTarget.weekly[w] <= 0) continue
+      const shares = allocateCrewEven(gTarget.weekly[w], crewIds.length)
+      crewIds.forEach((cid, i) => {
+        gTarget.crews.get(cid)!.weekly[w] = shares[i] || 0
+      })
+    }
+
+    // Bulanan: split rata (Σ crew bulanan = grup bulanan)
+    if (gTarget.monthly > 0) {
+      const monthShares = allocateCrewEven(gTarget.monthly, crewIds.length)
+      crewIds.forEach((cid, i) => {
+        gTarget.crews.get(cid)!.monthly = monthShares[i] || 0
+      })
     }
   }
 

@@ -1173,7 +1173,8 @@ export default function TargetBreakdownPanel({ onChanged }: { onChanged?: () => 
               </Button>
             </div>
             <CardDescription>
-              Hitungan engine realtime: Toko → Minggu → Hari → Zoning → Crew. Tanpa snapshot.
+              Hitungan engine realtime: Toko → Minggu → Hari → Zoning → Crew. Tanpa snapshot. Target
+              harian crew mengikuti bobot shift; target <b>mingguan &amp; bulanan crew = target zoning ÷ jumlah crew</b> (sama rata, apa pun jadwalnya).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 p-0">
