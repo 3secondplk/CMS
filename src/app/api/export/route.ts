@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { requireAuth, unauthorized } from '@/lib/auth'
 import { exportQuerySchema, firstZodMessage } from '@/lib/report-schemas'
 import { rateLimit, rateLimitKey } from '@/lib/rate-limit'
-import { salesExportResponse } from '@/lib/report-export'
+import { salesExportResponse, salesMonthlyXlsxResponse } from '@/lib/report-export'
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/export — CSV export (server-side STREAMING, chunked)
@@ -113,6 +113,11 @@ export async function GET(request: NextRequest) {
       }
 
       return NextResponse.json({ summary: lines.join('\n') })
+    }
+
+    // ─── XLSX per bulan (Export Semua Crew Per Bulan) ────────────
+    if (q.format === 'monthly') {
+      return await salesMonthlyXlsxResponse(q)
     }
 
     // ─── CSV streaming (logika di report-export service) ─────────

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exportQuerySchema, firstZodMessage } from '@/lib/report-schemas'
 import { rateLimit, rateLimitKey } from '@/lib/rate-limit'
-import { salesExportResponse } from '@/lib/report-export'
+import { salesExportResponse, salesMonthlyXlsxResponse } from '@/lib/report-export'
 
 // ─────────────────────────────────────────────────────────────
 // PUBLIC API: GET /api/public/report/export — Export CSV laporan (TANPA login)
@@ -36,6 +36,12 @@ export async function GET(request: NextRequest) {
 
     // Paksa semantik Report: hanya penjualan yang sudah diklaim crew
     const q = { ...parsed.data, claimedOnly: '1' as const }
+
+    // format=monthly → XLSX multi-sheet, 1 sheet per bulan
+    if (q.format === 'monthly') {
+      return await salesMonthlyXlsxResponse(q)
+    }
+
     return await salesExportResponse(q)
   } catch (error) {
     console.error('Public export error:', error)
